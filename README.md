@@ -9,6 +9,14 @@
 [![CPU Idle](https://img.shields.io/badge/Idle%20CPU-0.0%25-38BDF8?style=for-the-badge)](https://github.com/safeapricot/openwidget-windows)
 [![Localization](https://img.shields.io/badge/Localization-English%20%7C%20T%C3%BCrk%C3%A7e-E2925C?style=for-the-badge)](https://github.com/safeapricot/openwidget-windows)
 
+## 📥 Tek Tıkla İndir / One-Click Download
+
+[![Download OpenWidget ZIP](https://img.shields.io/badge/%E2%AC%87%EF%B8%8F%20TEK%20TIKLA%20%C4%B0ND%C4%B0R%20%2F%20DOWNLOAD%20ZIP-OpenWidget%20v1.0.0-E2925C?style=for-the-badge&logo=windows)](https://github.com/safeapricot/openwidget-windows/releases/latest/download/OpenWidget-Public-Release.zip)
+[![Download OpenWidget EXE](https://img.shields.io/badge/%E2%9A%A1%20D%C4%B0REKT%20EXE%20%C4%B0ND%C4%B0R-OpenWidget.exe%20(44%20KB)-10B981?style=for-the-badge&logo=windows)](https://github.com/safeapricot/openwidget-windows/releases/latest/download/OpenWidget.exe)
+
+> 💡 **Hızlı Kurulum / Quick Setup:** Yukarıdaki **Turuncu İndir** butonuna tıkladığınızda `.zip` dosyası doğrudan inmeye başlar. Klasöre çıkartıp **`OpenWidget.exe`** dosyasına çift tıklamanız yeterlidir!  
+> *(Click the orange button above to immediately download the `.zip` package, extract it, and run **`OpenWidget.exe`**!)*
+
 ---
 
 ## 🇬🇧 English Overview
