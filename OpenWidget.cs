@@ -1798,7 +1798,8 @@ namespace OpenWidget
                     if (key != null)
                     {
                         string rawCpu = (key.GetValue("ProcessorNameString") ?? "").ToString().Trim();
-                        rawCpu = Regex.Replace(rawCpu, @"\b(AMD|Intel\(R\)|Core\(TM\)|Processor|\d+-Core)\b", "", RegexOptions.IgnoreCase);
+                        rawCpu = Regex.Replace(rawCpu, @"\b(AMD|Intel\(R\)|Core\(TM\)|Processor|\d+-Core|\d+(st|nd|rd|th)\s+Gen)\b", "", RegexOptions.IgnoreCase);
+                        rawCpu = Regex.Replace(rawCpu, @"\s+with\s+Radeon.*$", "", RegexOptions.IgnoreCase);
                         rawCpu = Regex.Replace(rawCpu, @"\s+", " ").Trim();
                         if (!string.IsNullOrEmpty(rawCpu)) cpuShortName = rawCpu;
                     }
@@ -2598,9 +2599,9 @@ namespace OpenWidget
             };
             rootStack.Children.Add(teleHeader);
 
-            panelTelemetryContent.Children.Add(CreateTelemetrySparkRow("⚙", L("İşlemci (CPU)", "Processor (CPU)"), cpuShortName + " • 46°C", true, out txtCpuRowLabel, out txtCpuDetail, out sparkCpu, out txtCpuPct));
+            panelTelemetryContent.Children.Add(CreateTelemetrySparkRow("⚙", L("İşlemci (CPU)", "Processor (CPU)"), "46°C • " + cpuShortName, true, out txtCpuRowLabel, out txtCpuDetail, out sparkCpu, out txtCpuPct));
             panelTelemetryContent.Children.Add(CreateTelemetryBarRow("📟", L("Bellek (RAM)", "Memory (RAM)"), "8.0 / 16 GB", true, out txtRamRowLabel, out txtRamDetail, out barRamFill, out txtRamPct));
-            panelTelemetryContent.Children.Add(CreateTelemetrySparkRow("🎮", L("Ekran Kartı (GPU)", "Graphics (GPU)"), gpuModelName + " • 45°C", true, out txtGpuRowLabel, out txtGpuDetail, out sparkGpu, out txtGpuPct));
+            panelTelemetryContent.Children.Add(CreateTelemetrySparkRow("🎮", L("Ekran Kartı (GPU)", "Graphics (GPU)"), "45°C • " + gpuModelName, true, out txtGpuRowLabel, out txtGpuDetail, out sparkGpu, out txtGpuPct));
             panelTelemetryContent.Children.Add(CreateTelemetryBarRow("🎞", L("Video Belleği (VRAM)", "Video Memory (VRAM)"), "1.5 / 8 GB", true, out txtVramRowLabel, out txtVramDetail, out barVramFill, out txtVramPct));
 
             // Network Row
@@ -4114,7 +4115,7 @@ namespace OpenWidget
             if (cpuHistory.Count > 20) cpuHistory.RemoveAt(0);
 
             double cTemp = ReadCpuTemperature(cpuVal);
-            txtCpuDetail.Text = string.Format("{0} • {1:0}°C", cpuShortName, cTemp);
+            txtCpuDetail.Text = string.Format("{0:0}°C • {1}", cTemp, cpuShortName);
             txtCpuPct.Text = IsEn ? ((int)cpuVal + "%") : ("%" + (int)cpuVal);
             DrawSparkline(sparkCpu, cpuHistory, 46, 16);
 
@@ -4132,7 +4133,7 @@ namespace OpenWidget
             }
             catch { }
 
-            txtGpuDetail.Text = string.Format("{0} • {1:0}°C", gpuModelName, gpuTemp);
+            txtGpuDetail.Text = string.Format("{0:0}°C • {1}", gpuTemp, gpuModelName);
             txtGpuPct.Text = IsEn ? ((int)gpuLoad + "%") : ("%" + (int)gpuLoad);
             DrawSparkline(sparkGpu, gpuHistory, 46, 16);
 
