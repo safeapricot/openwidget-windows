@@ -99,6 +99,627 @@ namespace OpenWidget
         public static extern int nvmlDeviceGetMemoryInfo(IntPtr device, out nvmlMemory_t mem);
     }
 
+    public class WirelessDeviceReading
+    {
+        public string IdKey;
+        public string Icon;
+        public string Name;
+        public string Detail;
+        public string PctText;
+        public int BarPct;
+    }
+
+    // Universal Zero-Bloat Wireless Peripherals Detector & Battery Reader (HID, PnP Bluetooth/BLE, XInput, WinMM)
+    internal static class WirelessBatteryNative
+    {
+        [StructLayout(LayoutKind.Sequential)]
+        public struct SP_DEVICE_INTERFACE_DATA
+        {
+            public int cbSize;
+            public Guid InterfaceClassGuid;
+            public int Flags;
+            public IntPtr Reserved;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct SP_DEVINFO_DATA
+        {
+            public uint cbSize;
+            public Guid ClassGuid;
+            public uint DevInst;
+            public IntPtr Reserved;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct DEVPROPKEY
+        {
+            public Guid fmtid;
+            public uint pid;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct NativeOverlapped
+        {
+            public IntPtr InternalLow;
+            public IntPtr InternalHigh;
+            public int OffsetLow;
+            public int OffsetHigh;
+            public IntPtr EventHandle;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct XINPUT_BATTERY_INFORMATION
+        {
+            public byte BatteryType;
+            public byte BatteryLevel;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct XINPUT_STATE
+        {
+            public uint dwPacketNumber;
+            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 12)]
+            public byte[] Gamepad;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct JOYINFOEX
+        {
+            public int dwSize;
+            public int dwFlags;
+            public int dwXpos;
+            public int dwYpos;
+            public int dwZpos;
+            public int dwRpos;
+            public int dwUpos;
+            public int dwVpos;
+            public int dwButtons;
+            public int dwButtonNumber;
+            public int dwPOV;
+            public int dwReserved1;
+            public int dwReserved2;
+        }
+
+        [DllImport("xinput1_4.dll")]
+        public static extern uint XInputGetState(uint dwUserIndex, out XINPUT_STATE pState);
+
+        [DllImport("xinput1_4.dll")]
+        public static extern uint XInputGetBatteryInformation(uint dwUserIndex, byte devType, out XINPUT_BATTERY_INFORMATION pBatteryInformation);
+
+        [DllImport("winmm.dll")]
+        public static extern int joyGetNumDevs();
+
+        [DllImport("winmm.dll")]
+        public static extern int joyGetPosEx(int uJoyID, ref JOYINFOEX pji);
+
+        [DllImport("hid.dll")]
+        public static extern void HidD_GetHidGuid(out Guid hidGuid);
+
+        [DllImport("hid.dll", CharSet = CharSet.Unicode)]
+        public static extern bool HidD_GetProductString(IntPtr HidDeviceObject, StringBuilder Buffer, int BufferLength);
+
+        [DllImport("setupapi.dll", SetLastError = true)]
+        public static extern IntPtr SetupDiGetClassDevs(ref Guid ClassGuid, IntPtr Enumerator, IntPtr hwndParent, int Flags);
+
+        [DllImport("setupapi.dll", EntryPoint = "SetupDiGetClassDevs", SetLastError = true)]
+        public static extern IntPtr SetupDiGetClassDevsAll(IntPtr ClassGuid, IntPtr Enumerator, IntPtr hwndParent, uint Flags);
+
+        [DllImport("setupapi.dll", SetLastError = true)]
+        public static extern bool SetupDiEnumDeviceInterfaces(IntPtr DeviceInfoSet, IntPtr DeviceInfoData, ref Guid InterfaceClassGuid, int MemberIndex, ref SP_DEVICE_INTERFACE_DATA DeviceInterfaceData);
+
+        [DllImport("setupapi.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        public static extern bool SetupDiGetDeviceInterfaceDetail(IntPtr DeviceInfoSet, ref SP_DEVICE_INTERFACE_DATA DeviceInterfaceData, IntPtr DeviceInterfaceDetailData, int DeviceInterfaceDetailDataSize, out int RequiredSize, IntPtr DeviceInfoData);
+
+        [DllImport("setupapi.dll", SetLastError = true)]
+        public static extern bool SetupDiEnumDeviceInfo(IntPtr DeviceInfoSet, uint MemberIndex, ref SP_DEVINFO_DATA DeviceInfoData);
+
+        [DllImport("setupapi.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern bool SetupDiGetDevicePropertyW(IntPtr DeviceInfoSet, ref SP_DEVINFO_DATA DeviceInfoData, ref DEVPROPKEY PropertyKey, out uint PropertyType, byte[] PropertyBuffer, uint PropertyBufferSize, out uint RequiredSize, uint Flags);
+
+        [DllImport("setupapi.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        public static extern bool SetupDiGetDeviceRegistryProperty(IntPtr DeviceInfoSet, ref SP_DEVINFO_DATA DeviceInfoData, uint Property, out uint PropertyRegDataType, StringBuilder PropertyBuffer, uint PropertyBufferSize, out uint RequiredSize);
+
+        [DllImport("setupapi.dll")]
+        public static extern bool SetupDiDestroyDeviceInfoList(IntPtr DeviceInfoSet);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        public static extern IntPtr CreateFile(string lpFileName, uint dwDesiredAccess, uint dwShareMode, IntPtr lpSecurityAttributes, int dwCreationDisposition, uint dwFlagsAndAttributes, IntPtr hTemplateFile);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern bool WriteFile(IntPtr hFile, IntPtr lpBuffer, uint nNumberOfBytesToWrite, out uint lpNumberOfBytesWritten, IntPtr lpOverlapped);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern bool ReadFile(IntPtr hFile, IntPtr lpBuffer, uint nNumberOfBytesToRead, out uint lpNumberOfBytesRead, IntPtr lpOverlapped);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern bool GetOverlappedResult(IntPtr hFile, IntPtr lpOverlapped, out uint lpNumberOfBytesTransferred, bool bWait);
+
+        [DllImport("kernel32.dll")]
+        public static extern IntPtr CreateEvent(IntPtr lpEventAttributes, bool bManualReset, bool bInitialState, string lpName);
+
+        [DllImport("kernel32.dll")]
+        public static extern uint WaitForSingleObject(IntPtr hHandle, uint dwMilliseconds);
+
+        [DllImport("kernel32.dll")]
+        public static extern bool CancelIo(IntPtr hFile);
+
+        [DllImport("kernel32.dll")]
+        public static extern bool CloseHandle(IntPtr hObject);
+
+        public static bool OverlappedHidQuery(IntPtr hFile, byte[] tx, out byte[] rx, int len, uint timeoutMs)
+        {
+            rx = new byte[len];
+            IntPtr evW = CreateEvent(IntPtr.Zero, true, false, null);
+            IntPtr evR = CreateEvent(IntPtr.Zero, true, false, null);
+            int ovSize = Marshal.SizeOf(typeof(NativeOverlapped));
+            IntPtr pOvW = Marshal.AllocHGlobal(ovSize);
+            IntPtr pOvR = Marshal.AllocHGlobal(ovSize);
+            IntPtr pTx = Marshal.AllocHGlobal(len);
+            IntPtr pRx = Marshal.AllocHGlobal(len);
+            try
+            {
+                Marshal.Copy(tx, 0, pTx, len);
+                for (int i = 0; i < len; i++) Marshal.WriteByte(pRx, i, 0);
+
+                NativeOverlapped ovW = new NativeOverlapped { EventHandle = evW };
+                Marshal.StructureToPtr(ovW, pOvW, false);
+                uint wBytes;
+                if (!WriteFile(hFile, pTx, (uint)len, out wBytes, pOvW))
+                {
+                    if (WaitForSingleObject(evW, timeoutMs) != 0)
+                    {
+                        CancelIo(hFile);
+                        uint dummyW;
+                        GetOverlappedResult(hFile, pOvW, out dummyW, true);
+                        return false;
+                    }
+                }
+
+                Thread.Sleep(20);
+
+                NativeOverlapped ovR = new NativeOverlapped { EventHandle = evR };
+                Marshal.StructureToPtr(ovR, pOvR, false);
+                uint rBytes;
+                if (ReadFile(hFile, pRx, (uint)len, out rBytes, pOvR))
+                {
+                    Marshal.Copy(pRx, rx, 0, len);
+                    return rBytes > 0;
+                }
+                uint waitRes = WaitForSingleObject(evR, timeoutMs);
+                if (waitRes == 0)
+                {
+                    uint transferred;
+                    GetOverlappedResult(hFile, pOvR, out transferred, false);
+                    Marshal.Copy(pRx, rx, 0, len);
+                    return transferred > 0;
+                }
+                else
+                {
+                    CancelIo(hFile);
+                    uint dummyR;
+                    GetOverlappedResult(hFile, pOvR, out dummyR, true);
+                    return false;
+                }
+            }
+            catch
+            {
+                return false;
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(pTx);
+                Marshal.FreeHGlobal(pRx);
+                Marshal.FreeHGlobal(pOvW);
+                Marshal.FreeHGlobal(pOvR);
+                if (evW != IntPtr.Zero) CloseHandle(evW);
+                if (evR != IntPtr.Zero) CloseHandle(evR);
+            }
+        }
+
+        public static string ReadUsbProductName(string hidPath, string fallback)
+        {
+            try
+            {
+                IntPtr h = CreateFile(hidPath, 0, 3, IntPtr.Zero, 3, 0, IntPtr.Zero);
+                if (h != IntPtr.Zero && h != new IntPtr(-1))
+                {
+                    try
+                    {
+                        StringBuilder sb = new StringBuilder(128);
+                        if (HidD_GetProductString(h, sb, 256))
+                        {
+                            string s = sb.ToString().Trim();
+                            if (!string.IsNullOrEmpty(s)) return s;
+                        }
+                    }
+                    finally
+                    {
+                        CloseHandle(h);
+                    }
+                }
+            }
+            catch { }
+            return fallback;
+        }
+
+        public static void ClassifyDeviceTypeAndIcon(string rawName, string devClass, bool isEn, out string icon, out string typeLabel)
+        {
+            string lower = ((rawName ?? "") + " " + (devClass ?? "")).ToLowerInvariant();
+            if (lower.Contains("keyboard") || lower.Contains("klavye") || lower.Contains("kbd") || lower.Contains("keychron") || lower.Contains("mx keys"))
+            {
+                icon = "⌨";
+                typeLabel = isEn ? "Keyboard" : "Klavye";
+            }
+            else if (lower.Contains("headset") || lower.Contains("headphone") || lower.Contains("kulaklık") || lower.Contains("airpods") ||
+                     lower.Contains("buds") || lower.Contains("cloud") || lower.Contains("arctis") || lower.Contains("nova") ||
+                     lower.Contains("kraken") || lower.Contains("blackshark") || lower.Contains("barracuda") || lower.Contains("wh-1000") ||
+                     lower.Contains("wf-1000") || lower.Contains("soundcore") || lower.Contains("jbl") || lower.Contains("audio"))
+            {
+                icon = "🎧";
+                typeLabel = isEn ? "Headset" : "Kulaklık";
+            }
+            else if (lower.Contains("controller") || lower.Contains("gamepad") || lower.Contains("kumanda") || lower.Contains("xbox") ||
+                     lower.Contains("dualshock") || lower.Contains("dualsense") || lower.Contains("8bitdo") || lower.Contains("gamesir") ||
+                     lower.Contains("flydigi") || lower.Contains("joystick"))
+            {
+                icon = "🎮";
+                typeLabel = isEn ? "Controller" : "Kumanda";
+            }
+            else
+            {
+                icon = "🖱";
+                typeLabel = isEn ? "Mouse" : "Fare";
+            }
+        }
+
+        public static List<WirelessDeviceReading> ScanActiveWirelessDevices(bool isEn, Dictionary<string, int> lastKnownPcts, Dictionary<string, string> lastKnownHz)
+        {
+            List<WirelessDeviceReading> results = new List<WirelessDeviceReading>();
+            HashSet<string> addedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            // 1. Scan Direct USB HID Vendor Wireless Dongles (CompX 4K/8K Mice & Keyboards, HyperX Wireless Headsets)
+            try
+            {
+                Guid hidGuid;
+                HidD_GetHidGuid(out hidGuid);
+                IntPtr hDevInfo = SetupDiGetClassDevs(ref hidGuid, IntPtr.Zero, IntPtr.Zero, 0x12);
+                if (hDevInfo != IntPtr.Zero && hDevInfo != new IntPtr(-1))
+                {
+                    try
+                    {
+                        int index = 0;
+                        SP_DEVICE_INTERFACE_DATA devData = new SP_DEVICE_INTERFACE_DATA();
+                        devData.cbSize = Marshal.SizeOf(devData);
+                        while (SetupDiEnumDeviceInterfaces(hDevInfo, IntPtr.Zero, ref hidGuid, index, ref devData))
+                        {
+                            int reqSize;
+                            SetupDiGetDeviceInterfaceDetail(hDevInfo, ref devData, IntPtr.Zero, 0, out reqSize, IntPtr.Zero);
+                            if (reqSize > 0)
+                            {
+                                IntPtr detailBuf = Marshal.AllocHGlobal(reqSize);
+                                try
+                                {
+                                    Marshal.WriteInt32(detailBuf, IntPtr.Size == 8 ? 8 : 6);
+                                    if (SetupDiGetDeviceInterfaceDetail(hDevInfo, ref devData, detailBuf, reqSize, out reqSize, IntPtr.Zero))
+                                    {
+                                        string p = Marshal.PtrToStringAuto(new IntPtr(detailBuf.ToInt64() + 4));
+                                        if (p != null)
+                                        {
+                                            // A) CompX 4K/8K Wireless Mouse/Keyboard Protocol (VID_3554, Col05, Report 0x08)
+                                            if (p.IndexOf("vid_3554&pid_f5", StringComparison.OrdinalIgnoreCase) >= 0 &&
+                                                p.IndexOf("&col05", StringComparison.OrdinalIgnoreCase) >= 0)
+                                            {
+                                                string rawProd = ReadUsbProductName(p, "Wireless Mouse");
+                                                string cleanName = rawProd;
+                                                if (p.IndexOf("pid_f5f7", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                                    rawProd.IndexOf("SCYROX", StringComparison.OrdinalIgnoreCase) >= 0)
+                                                {
+                                                    cleanName = "Scyrox V8";
+                                                }
+                                                else
+                                                {
+                                                    cleanName = Regex.Replace(rawProd, "(?i)\\s*(8k|4k|1k)?\\s*(wireless)?\\s*(dongle|receiver)", "").Trim();
+                                                    if (string.IsNullOrEmpty(cleanName)) cleanName = rawProd;
+                                                }
+
+                                                string icon, typeLabel;
+                                                ClassifyDeviceTypeAndIcon(cleanName, "Mouse", isEn, out icon, out typeLabel);
+
+                                                IntPtr hDev = CreateFile(p, 0xC0000000U, 3, IntPtr.Zero, 3, 0x40000000U, IntPtr.Zero);
+                                                if (hDev != IntPtr.Zero && hDev != new IntPtr(-1))
+                                                {
+                                                    try
+                                                    {
+                                                        string hzText = lastKnownHz.ContainsKey(p) ? lastKnownHz[p] : "1000 Hz";
+                                                        byte[] txHz = new byte[17];
+                                                        txHz[0] = 0x08; txHz[1] = 0x08; txHz[3] = 0x00; txHz[4] = 0x00; txHz[5] = 0x02; txHz[16] = 0x43;
+                                                        byte[] rxHz;
+                                                        if (OverlappedHidQuery(hDev, txHz, out rxHz, 17, 100) && rxHz[0] == 0x08 && rxHz[1] == 0x08)
+                                                        {
+                                                            byte rc = rxHz[6];
+                                                            if (rc == 0x01) hzText = "1000 Hz";
+                                                            else if (rc == 0x02) hzText = "500 Hz";
+                                                            else if (rc == 0x04) hzText = "250 Hz";
+                                                            else if (rc == 0x08) hzText = "125 Hz";
+                                                            else if (rc == 0x10) hzText = "2000 Hz";
+                                                            else if (rc == 0x20) hzText = "4000 Hz";
+                                                            else if (rc == 0x40) hzText = "8000 Hz";
+                                                            lastKnownHz[p] = hzText;
+                                                        }
+
+                                                        byte[] txBat = new byte[17];
+                                                        txBat[0] = 0x08; txBat[1] = 0x04; txBat[16] = 0x49;
+                                                        byte[] rxBat;
+                                                        int pct = 0;
+                                                        bool charging = false;
+                                                        int mv = 0;
+                                                        if (OverlappedHidQuery(hDev, txBat, out rxBat, 17, 120) && rxBat[0] == 0x08 && rxBat[1] == 0x04)
+                                                        {
+                                                            pct = rxBat[6];
+                                                            charging = rxBat[7] == 1;
+                                                            mv = (rxBat[8] << 8) | rxBat[9];
+                                                        }
+
+                                                        if (pct > 0 && pct <= 100)
+                                                        {
+                                                            lastKnownPcts[p] = pct;
+                                                            string det = charging
+                                                                ? (hzText + " • " + (isEn ? "⚡ Charging" : "⚡ Şarjda"))
+                                                                : (mv > 3000 && mv < 4500 ? string.Format("{0} • {1:0.00}V", hzText, mv / 1000.0) : (hzText + " • " + typeLabel));
+                                                            results.Add(new WirelessDeviceReading
+                                                            {
+                                                                IdKey = p,
+                                                                Icon = icon,
+                                                                Name = cleanName,
+                                                                Detail = det,
+                                                                PctText = isEn ? (pct + "%") : ("%" + pct),
+                                                                BarPct = pct
+                                                            });
+                                                            addedNames.Add(cleanName);
+                                                        }
+                                                        else if (lastKnownPcts.ContainsKey(p) && lastKnownPcts[p] > 0)
+                                                        {
+                                                            int lastPct = lastKnownPcts[p];
+                                                            results.Add(new WirelessDeviceReading
+                                                            {
+                                                                IdKey = p,
+                                                                Icon = icon,
+                                                                Name = cleanName,
+                                                                Detail = hzText + " • " + (isEn ? "Sleep" : "Uyku"),
+                                                                PctText = isEn ? (lastPct + "%") : ("%" + lastPct),
+                                                                BarPct = lastPct
+                                                            });
+                                                            addedNames.Add(cleanName);
+                                                        }
+                                                    }
+                                                    finally
+                                                    {
+                                                        CloseHandle(hDev);
+                                                    }
+                                                }
+                                            }
+                                            // B) HyperX / HP Wireless Headsets (VID_03F0 or VID_0951, MI_03 Col01, Report 0x66)
+                                            else if ((p.IndexOf("vid_03f0&pid_05b7", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                                      p.IndexOf("vid_03f0&pid_09", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                                      p.IndexOf("vid_0951&pid_17", StringComparison.OrdinalIgnoreCase) >= 0) &&
+                                                     p.IndexOf("&mi_03&col01", StringComparison.OrdinalIgnoreCase) >= 0)
+                                            {
+                                                string rawProd = ReadUsbProductName(p, "HyperX Wireless");
+                                                string cleanName = Regex.Replace(rawProd, "(?i)\\s*wireless\\s*$", "").Trim();
+                                                if (string.IsNullOrEmpty(cleanName)) cleanName = rawProd;
+
+                                                IntPtr hHeadset = CreateFile(p, 0xC0000000U, 3, IntPtr.Zero, 3, 0x40000000U, IntPtr.Zero);
+                                                if (hHeadset != IntPtr.Zero && hHeadset != new IntPtr(-1))
+                                                {
+                                                    try
+                                                    {
+                                                        byte[] tx = new byte[62];
+                                                        tx[0] = 0x66; tx[1] = 0x89;
+                                                        byte[] rx;
+                                                        if (OverlappedHidQuery(hHeadset, tx, out rx, 62, 120) && rx[0] == 0x66 && rx[1] == 0x89)
+                                                        {
+                                                            int pct = (rx[4] > 0 && rx[4] <= 100) ? (int)rx[4] : ((rx[3] > 0 && rx[3] <= 100) ? (int)rx[3] : 0);
+                                                            if (pct > 0)
+                                                            {
+                                                                bool isCharging = false;
+                                                                byte[] txChg = new byte[62];
+                                                                txChg[0] = 0x66; txChg[1] = 0x8A;
+                                                                byte[] rxChg;
+                                                                if (OverlappedHidQuery(hHeadset, txChg, out rxChg, 62, 100) && rxChg[0] == 0x66 && rxChg[1] == 0x8A)
+                                                                {
+                                                                    if (rxChg[4] == 1 || rxChg[3] == 1) isCharging = true;
+                                                                }
+                                                                results.Add(new WirelessDeviceReading
+                                                                {
+                                                                    IdKey = p,
+                                                                    Icon = "🎧",
+                                                                    Name = cleanName,
+                                                                    Detail = isCharging ? (isEn ? "Headset • ⚡ Charging" : "Kulaklık • ⚡ Şarjda") : (isEn ? "Headset • 2.4GHz" : "Kulaklık • 2.4GHz"),
+                                                                    PctText = isEn ? (pct + "%") : ("%" + pct),
+                                                                    BarPct = pct
+                                                                });
+                                                                addedNames.Add(cleanName);
+                                                            }
+                                                        }
+                                                    }
+                                                    finally
+                                                    {
+                                                        CloseHandle(hHeadset);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                finally
+                                {
+                                    Marshal.FreeHGlobal(detailBuf);
+                                }
+                            }
+                            index++;
+                        }
+                    }
+                    finally
+                    {
+                        SetupDiDestroyDeviceInfoList(hDevInfo);
+                    }
+                }
+            }
+            catch { }
+
+            // 2. Scan Windows Native PnP / Bluetooth / BLE Battery Service Devices (DEVPKEY_Device_BatteryLife)
+            try
+            {
+                IntPtr hPnp = SetupDiGetClassDevsAll(IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, 0x02 | 0x04);
+                if (hPnp != IntPtr.Zero && hPnp != new IntPtr(-1))
+                {
+                    try
+                    {
+                        SP_DEVINFO_DATA devInfo = new SP_DEVINFO_DATA();
+                        devInfo.cbSize = (uint)Marshal.SizeOf(typeof(SP_DEVINFO_DATA));
+                        DEVPROPKEY batKey = new DEVPROPKEY { fmtid = new Guid("104EA319-6EE2-4701-BD47-8DDBF425BBE5"), pid = 2 };
+
+                        uint idx = 0;
+                        while (SetupDiEnumDeviceInfo(hPnp, idx, ref devInfo))
+                        {
+                            uint propType, reqSize;
+                            byte[] buf = new byte[16];
+                            if (SetupDiGetDevicePropertyW(hPnp, ref devInfo, ref batKey, out propType, buf, 16, out reqSize, 0))
+                            {
+                                int pct = buf[0];
+                                if (pct > 0 && pct <= 100)
+                                {
+                                    StringBuilder sbName = new StringBuilder(256);
+                                    uint regType, regReq;
+                                    if (!SetupDiGetDeviceRegistryProperty(hPnp, ref devInfo, 0x0C, out regType, sbName, 256, out regReq) || sbName.Length == 0)
+                                    {
+                                        SetupDiGetDeviceRegistryProperty(hPnp, ref devInfo, 0x00, out regType, sbName, 256, out regReq);
+                                    }
+                                    StringBuilder sbClass = new StringBuilder(128);
+                                    SetupDiGetDeviceRegistryProperty(hPnp, ref devInfo, 0x07, out regType, sbClass, 128, out regReq);
+
+                                    string devName = sbName.ToString().Trim();
+                                    string devClass = sbClass.ToString().Trim();
+                                    if (!string.IsNullOrEmpty(devName) && !addedNames.Contains(devName))
+                                    {
+                                        string icon, typeLabel;
+                                        ClassifyDeviceTypeAndIcon(devName, devClass, isEn, out icon, out typeLabel);
+                                        results.Add(new WirelessDeviceReading
+                                        {
+                                            IdKey = "PNP_" + devName,
+                                            Icon = icon,
+                                            Name = devName,
+                                            Detail = typeLabel + " • Bluetooth",
+                                            PctText = isEn ? (pct + "%") : ("%" + pct),
+                                            BarPct = pct
+                                        });
+                                        addedNames.Add(devName);
+                                    }
+                                }
+                            }
+                            idx++;
+                        }
+                    }
+                    finally
+                    {
+                        SetupDiDestroyDeviceInfoList(hPnp);
+                    }
+                }
+            }
+            catch { }
+
+            // 3. Scan XInput & DirectInput Wireless Controllers (Gamepads)
+            bool hasControllerAlready = false;
+            foreach (WirelessDeviceReading r in results)
+            {
+                if (r.Icon == "🎮") { hasControllerAlready = true; break; }
+            }
+
+            if (!hasControllerAlready)
+            {
+                bool padConnected = false;
+                string padDetail = "";
+                string padPctText = "";
+                int padBarPct = 0;
+
+                try
+                {
+                    for (uint i = 0; i < 4; i++)
+                    {
+                        XINPUT_STATE st;
+                        if (XInputGetState(i, out st) == 0)
+                        {
+                            padConnected = true;
+                            XINPUT_BATTERY_INFORMATION bat;
+                            if (XInputGetBatteryInformation(i, 0, out bat) == 0)
+                            {
+                                if (bat.BatteryType == 1)
+                                {
+                                    padBarPct = 100;
+                                    padPctText = isEn ? "100%" : "%100";
+                                    padDetail = isEn ? "Controller • Wired" : "Kumanda • Kablolu";
+                                }
+                                else if (bat.BatteryType == 2 || bat.BatteryType == 3)
+                                {
+                                    if (bat.BatteryLevel == 3) { padBarPct = 100; padPctText = isEn ? "100%" : "%100"; padDetail = isEn ? "Controller • Full" : "Kumanda • Tam Dolu"; }
+                                    else if (bat.BatteryLevel == 2) { padBarPct = 65; padPctText = isEn ? "65%" : "%65"; padDetail = isEn ? "Controller • Good" : "Kumanda • İyi Seviye"; }
+                                    else if (bat.BatteryLevel == 1) { padBarPct = 30; padPctText = isEn ? "30%" : "%30"; padDetail = isEn ? "Controller • Low" : "Kumanda • Düşük Pil"; }
+                                    else { padBarPct = 10; padPctText = isEn ? "10%" : "%10"; padDetail = isEn ? "Controller • Critical" : "Kumanda • Çok Düşük!"; }
+                                }
+                                else
+                                {
+                                    padBarPct = 100;
+                                    padPctText = isEn ? "Active" : "Açık";
+                                    padDetail = isEn ? "Controller • Connected" : "Kumanda • Bağlı";
+                                }
+                            }
+                            break;
+                        }
+                    }
+                }
+                catch { }
+
+                if (!padConnected)
+                {
+                    try
+                    {
+                        int numDevs = Math.Min(16, joyGetNumDevs());
+                        for (int i = 0; i < numDevs; i++)
+                        {
+                            JOYINFOEX ji = new JOYINFOEX();
+                            ji.dwSize = Marshal.SizeOf(typeof(JOYINFOEX));
+                            ji.dwFlags = 0xFF;
+                            if (joyGetPosEx(i, ref ji) == 0)
+                            {
+                                padConnected = true;
+                                padBarPct = 100;
+                                padPctText = isEn ? "Active" : "Açık";
+                                padDetail = isEn ? "Controller • Wireless" : "Kumanda • Kablosuz";
+                                break;
+                            }
+                        }
+                    }
+                    catch { }
+                }
+
+                if (padConnected && padBarPct > 0)
+                {
+                    results.Add(new WirelessDeviceReading
+                    {
+                        IdKey = "GAMEPAD_0",
+                        Icon = "🎮",
+                        Name = isEn ? "Wireless Controller" : "Kablosuz Kumanda",
+                        Detail = padDetail,
+                        PctText = padPctText,
+                        BarPct = padBarPct
+                    });
+                }
+            }
+
+            return results;
+        }
+    }
+
     public class ClipboardEntry
     {
         public string Text { get; set; }
@@ -1063,6 +1684,16 @@ namespace OpenWidget
         private TextBlock[] txtDayIcons = new TextBlock[3];
         private TextBlock[] txtDayTemps = new TextBlock[3];
 
+        // Wireless Peripherals Battery UI & State (Auto-Detects Mouse, Keyboard, Headset, Controller)
+        private Grid wirelessHeaderGrid;
+        private TextBlock txtWirelessSectionTitle;
+        private Button btnRefreshWireless;
+        private StackPanel panelWirelessContent;
+        private Dictionary<string, int> wirelessLastPcts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        private Dictionary<string, string> wirelessLastHz = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        private int wirelessPollingBusy = 0;
+        private int lastWirelessCount = 0;
+
         // Telemetry UI
         private TextBlock txtTelemetrySectionTitle;
         private StackPanel panelTelemetryContent;
@@ -1858,7 +2489,61 @@ namespace OpenWidget
             weatherCard.Child = weatherStack;
             rootStack.Children.Add(weatherCard);
 
-            // 3. TELEMETRY SECTION (No Smart Bulb bloat in Public Edition!)
+            // 3. WIRELESS DEVICES SECTION (Auto-Discovers Connected Mouse, Keyboard, Headset, Controller)
+            wirelessHeaderGrid = new Grid
+            {
+                Margin = new Thickness(0, 12, 0, 4),
+                Cursor = Cursors.Hand,
+                Tag = "Interactive",
+                Visibility = Visibility.Collapsed
+            };
+            wirelessHeaderGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            wirelessHeaderGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            wirelessHeaderGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            StackPanel wirelessTitleLeft = new StackPanel { Orientation = Orientation.Horizontal };
+            wirelessTitleLeft.Children.Add(new TextBlock { Text = "🔋 ", Foreground = HexBrush("#B8A99E"), FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center });
+            txtWirelessSectionTitle = new TextBlock { Text = L("Kablosuz Cihazlar", "Wireless Devices"), Foreground = HexBrush("#E6DDD6"), FontSize = 12.5, FontWeight = FontWeights.Medium, VerticalAlignment = VerticalAlignment.Center };
+            wirelessTitleLeft.Children.Add(txtWirelessSectionTitle);
+            Grid.SetColumn(wirelessTitleLeft, 0);
+            wirelessHeaderGrid.Children.Add(wirelessTitleLeft);
+
+            btnRefreshWireless = CreateStyledIconButton("Transparent", "Transparent", L("Kablosuz cihaz şarjlarını şimdi yenile", "Refresh wireless device battery levels now"));
+            btnRefreshWireless.Padding = new Thickness(5, 1, 5, 1);
+            btnRefreshWireless.Margin = new Thickness(0, 0, 4, 0);
+            btnRefreshWireless.Content = new TextBlock { Text = "↻", Foreground = HexBrush("#B8A99E"), FontSize = 12, FontWeight = FontWeights.Bold };
+            btnRefreshWireless.Click += (s, e) =>
+            {
+                e.Handled = true;
+                Task.Run(() => PollWirelessDevicesAsync());
+                ShowToast(L("Kablosuz cihazlar taranıyor...", "Scanning wireless devices..."));
+            };
+            Grid.SetColumn(btnRefreshWireless, 1);
+            wirelessHeaderGrid.Children.Add(btnRefreshWireless);
+
+            TextBlock wirelessChevron = new TextBlock { Text = "⌄", Foreground = HexBrush("#B8A99E"), FontSize = 13, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center };
+            Grid.SetColumn(wirelessChevron, 2);
+            wirelessHeaderGrid.Children.Add(wirelessChevron);
+
+            panelWirelessContent = new StackPanel { Visibility = Visibility.Collapsed };
+            wirelessHeaderGrid.MouseLeftButtonDown += (s, e) =>
+            {
+                if (panelWirelessContent.Visibility == Visibility.Visible)
+                {
+                    panelWirelessContent.Visibility = Visibility.Collapsed;
+                    wirelessChevron.Text = "›";
+                }
+                else
+                {
+                    panelWirelessContent.Visibility = Visibility.Visible;
+                    wirelessChevron.Text = "⌄";
+                    Task.Run(() => PollWirelessDevicesAsync());
+                }
+            };
+            rootStack.Children.Add(wirelessHeaderGrid);
+            rootStack.Children.Add(panelWirelessContent);
+
+            // 4. TELEMETRY SECTION (No Smart Bulb bloat in Public Edition!)
             Grid teleHeader = new Grid { Margin = new Thickness(0, 12, 0, 4), Cursor = Cursors.Hand, Tag = "Interactive" };
             teleHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             teleHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -2570,6 +3255,8 @@ namespace OpenWidget
                 if (txtHumidityLabel != null) txtHumidityLabel.Text = L("💧 Nem", "💧 Humidity");
                 if (txtWindLabel != null) txtWindLabel.Text = L("💨 Rüzgar", "💨 Wind");
                 if (txtRainLabel != null) txtRainLabel.Text = L("🌧 Yağış", "🌧 Rain");
+                if (txtWirelessSectionTitle != null) txtWirelessSectionTitle.Text = L("Kablosuz Cihazlar", "Wireless Devices");
+                if (btnRefreshWireless != null) btnRefreshWireless.ToolTip = L("Kablosuz cihaz şarjlarını şimdi yenile", "Refresh wireless device battery levels now");
                 if (txtTelemetrySectionTitle != null) txtTelemetrySectionTitle.Text = L("Telemetri", "Telemetry");
                 if (txtCpuRowLabel != null) txtCpuRowLabel.Text = L("İşlemci (CPU)", "Processor (CPU)");
                 if (txtRamRowLabel != null) txtRamRowLabel.Text = L("Bellek (RAM)", "Memory (RAM)");
@@ -2607,7 +3294,11 @@ namespace OpenWidget
                 UpdateClockAndUptime();
                 UpdateTelemetryFast();
                 RefreshClipboardUi();
-                Task.Run(() => FetchWeatherAsync());
+                Task.Run(() =>
+                {
+                    FetchWeatherAsync();
+                    PollWirelessDevicesAsync();
+                });
             }
             catch { }
         }
@@ -3252,6 +3943,7 @@ namespace OpenWidget
                 catch { }
                 FetchWeatherAsync();
                 UpdatePingAsync();
+                PollWirelessDevicesAsync();
             });
 
             try
@@ -3286,8 +3978,21 @@ namespace OpenWidget
             };
             fastTimer.Start();
 
+            int mediumTickCount = 0;
             DispatcherTimer mediumTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(6) };
-            mediumTimer.Tick += (s, e) => Task.Run(() => UpdatePingAsync());
+            mediumTimer.Tick += (s, e) =>
+            {
+                mediumTickCount++;
+                bool pollWirelessNow = (mediumTickCount % 3 == 0);
+                Task.Run(() =>
+                {
+                    UpdatePingAsync();
+                    if (pollWirelessNow)
+                    {
+                        PollWirelessDevicesAsync();
+                    }
+                });
+            };
             mediumTimer.Start();
 
             DispatcherTimer weatherTimer = new DispatcherTimer { Interval = TimeSpan.FromMinutes(15) };
@@ -3498,6 +4203,60 @@ namespace OpenWidget
                 }
             }
             catch { }
+        }
+
+        // ==========================================
+        // UNIVERSAL WIRELESS PERIPHERALS BATTERY SCAN
+        // ==========================================
+        private void PollWirelessDevicesAsync()
+        {
+            if (Interlocked.CompareExchange(ref wirelessPollingBusy, 1, 0) != 0) return;
+            try
+            {
+                bool en = IsEn;
+                List<WirelessDeviceReading> activeList = WirelessBatteryNative.ScanActiveWirelessDevices(en, wirelessLastPcts, wirelessLastHz);
+
+                Dispatcher.Invoke(() =>
+                {
+                    if (panelWirelessContent == null || wirelessHeaderGrid == null) return;
+
+                    bool countChanged = (activeList.Count != lastWirelessCount);
+                    lastWirelessCount = activeList.Count;
+
+                    panelWirelessContent.Children.Clear();
+                    SolidColorBrush accentBrush = (SolidColorBrush)HexBrush(accentColorHex);
+
+                    foreach (WirelessDeviceReading dev in activeList)
+                    {
+                        TextBlock lblBlock, detBlock, pctBlock;
+                        Border fillBar;
+                        Grid row = CreateTelemetryBarRow(dev.Icon, dev.Name, dev.Detail, true, out lblBlock, out detBlock, out fillBar, out pctBlock);
+                        pctBlock.Text = dev.PctText;
+                        pctBlock.Foreground = accentBrush;
+                        fillBar.Background = accentBrush;
+                        fillBar.Width = dev.BarPct > 0 ? Math.Max(3, (42.0 * dev.BarPct) / 100.0) : 0;
+                        panelWirelessContent.Children.Add(row);
+                    }
+
+                    Visibility targetVis = activeList.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+                    if (wirelessHeaderGrid.Visibility != targetVis)
+                    {
+                        wirelessHeaderGrid.Visibility = targetVis;
+                        panelWirelessContent.Visibility = targetVis;
+                        countChanged = true;
+                    }
+
+                    if (countChanged && isWindowInitialized)
+                    {
+                        FitHeightToContentIfCompact();
+                    }
+                });
+            }
+            catch { }
+            finally
+            {
+                Interlocked.Exchange(ref wirelessPollingBusy, 0);
+            }
         }
 
         // ==========================================

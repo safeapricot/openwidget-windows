@@ -30,6 +30,10 @@
   - **Weather Location Choice:** Auto-detect via **GPS / Location Services**, or type any **City / District** worldwide (e.g., `London`, `New York`, `Istanbul / Kadikoy`).
   - **Custom Theme Color & Shortcuts:** Pick your favorite accent color, create a Desktop shortcut, and enable Windows Startup auto-launch.
 - **☀ Live Weather & 3-Day Forecast:** Current temperature, feels-like, humidity, wind speed, precipitation, and 3-day min/max forecast powered by Open-Meteo (no API key required).
+- **🔋 Auto-Detected Wireless Peripherals Battery & Polling Rate Telemetry:**
+  - Automatically detects connected wireless **Mice (`🖱`)**, **Keyboards (`⌨`)**, **Headsets (`🎧`)**, and **Controllers/Gamepads (`🎮`)** along with their real product names!
+  - Supports **Windows Native Bluetooth / BLE Battery Service (`DEVPKEY_Device_BatteryLife`)**, **XInput / DirectInput Wireless Gamepads**, **CompX 4K/8K Wireless Gaming Mice** (Scyrox, VXE, ATK, etc. — including real hardware **Polling Rate `125 Hz – 8000 Hz`** and battery voltage), and **HyperX Wireless Headsets** directly via non-blocking Overlapped USB HID I/O — zero manufacturer bloatware needed!
+  - Automatically hides turned-off devices (and hides the entire section if no wireless peripherals are active).
 - **📊 Zero-Overhead Hardware Telemetry (Auto-Detects Your PC):**
   - **CPU:** Automatically detects your processor model name, live utilization, sparkline graph, and temperature.
   - **RAM:** Live physical memory usage & progress bar via Win32 `GlobalMemoryStatusEx`.
@@ -69,6 +73,10 @@ OpenWidget compiles out-of-the-box using the native .NET Framework 64-bit compil
   - **Hava Durumu Konumu:** İster **📍 Otomatik Algıla (GPS / Konum Servisi)** seçin, ister **🏙 Sabit İl / İlçe** (Örn: `İstanbul / Kadıköy`, `Ankara`, `Kütahya / Merkez`) yazın.
   - **Tema ve Kısayollar:** Başlangıç tema renginizi seçin, Masaüstü kısayolu ve Windows başlangıcında otomatik açılma ayarlarını tek tıkla tamamlayın.
 - **☀ Canlı Hava Durumu & 3 Günlük Tahmin:** Anlık sıcaklık, hissedilen sıcaklık, nem, rüzgar, yağış ve 3 günlük tahmin.
+- **🔋 Otomatik Kablosuz Cihaz (Fare, Klavye, Kulaklık, Kumanda) Şarj & Hz Takibi:**
+  - Bilgisayarınıza bağlı kablosuz **Fare (`🖱`)**, **Klavye (`⌨`)**, **Kulaklık (`🎧`)** ve **Oyun Kumandalarını (`🎮`)** türünü ve gerçek cihaz ismini algılayarak otomatik listeler.
+  - **Bluetooth / BLE Cihazlar (`DEVPKEY_Device_BatteryLife`)**, **XInput / DirectInput Kablosuz Kumandalar**, **CompX 4K/8K Kablosuz Oyuncu Fareleri** (Scyrox, VXE, ATK vb. — gerçek donanım **Polling Rate `125 Hz – 8000 Hz`**, voltaj ve şarj durumu dahil) ve **HyperX Kablosuz Kulaklıkları** doğrudan Windows çekirdeğinden (`hid.dll` & `xinput1_4.dll`) okur; hiçbir üretici yazılımı gerektirmez.
+  - Kapalı olan cihazları otomatik gizler; aktif kablosuz cihaz yoksa bölüm tamamen gizlenerek sıfır kalabalık yaratır.
 - **📊 Her Bilgisayara Uyumlu Canlı Donanım Telemetrisi:**
   - Bilgisayarınızdaki **İşlemci (CPU)** adını, **Ekran Kartı (GPU)** modelini (`nvml.dll` doğrudan C-API), **RAM / VRAM** kullanımını, **Ağ Trafiği & Ping** değerlerini ve takılı olan sabit **Disklerinizi (`C:`, `D:` vb.)** otomatik algılar.
 - **🎙 Sistem Tepsisi (System Tray) Tek Tık Mikrofon Susturma:**
