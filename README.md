@@ -23,7 +23,7 @@
 
 ---
 
-## English Overview
+## Overview
 
 **OpenWidget** is a single-file, zero-dependency native Windows desktop widget written in C# & WPF with direct Win32, USB HID, CoreAudio COM, and NVIDIA NVML C-API calls. Unlike Electron or web-based widgets that consume 300–500 MB of RAM, OpenWidget is compiled into a **197 KB native executable** (including embedded multi-resolution icons) and uses only **~23 MB of RAM** with **0.0% idle CPU**.
 
@@ -65,7 +65,7 @@ OpenWidget compiles out-of-the-box using the native .NET Framework 64-bit compil
 
 ---
 
-## Türkçe Genel Bakış
+## Genel Bakış
 
 **OpenWidget**, Windows 10 ve 11 için C# / WPF ve doğrudan Win32, USB HID, CoreAudio COM ve NVIDIA NVML C-API çağrılarıyla sıfırdan geliştirilmiş, tek dosyalık (`OpenWidget.exe` — gömülü çoklu-çözünürlüklü ikonlarıyla birlikte **197 KB**), ultra hafif bir masaüstü widget uygulamasıdır.
 
@@ -87,7 +87,7 @@ OpenWidget compiles out-of-the-box using the native .NET Framework 64-bit compil
   - Kopyaladığınız son 8 metni sıfır işlemci yüküyle (`WM_CLIPBOARDUPDATE`) listeler; üzerine tıkladığınız metni tekrar panoya kopyalar.
 - **Canlı Spektrum Renk Seçici & Saydamlık Ayarı:**
   - Ayarlar menüsünden 2 boyutlu renk spektrumu üzerinden istediğiniz rengi sürükleyerek seçebilir, `#HEX` kodu girebilir ve arka plan saydamlığını (`%30–%100`) değiştirebilirsiniz.
-- **`Win + D` (Masaüstünü Göster) Koruması & 2K/4K Netlik:**
+- **`Win + D` (Masaüstünü Göster) Koruması:**
   - `Win + D` tuşlarına bastığınızda masaüstünden kaybolmaz; son bıraktığınız konumu ve boyutu otomatik hatırlar.
 
 ### Kurulum ve Kullanım
