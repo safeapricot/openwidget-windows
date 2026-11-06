@@ -17,6 +17,12 @@
 > 💡 **Hızlı Kurulum / Quick Setup:** Yukarıdaki **Turuncu İndir** butonuna tıkladığınızda `.zip` dosyası doğrudan inmeye başlar. Klasöre çıkartıp **`OpenWidget.exe`** dosyasına çift tıklamanız yeterlidir!  
 > *(Click the orange button above to immediately download the `.zip` package, extract it, and run **`OpenWidget.exe`**!)*
 
+## 🖼 Ekran Görüntüsü / Live Preview
+
+<p align="center">
+  <img src="preview.jpg" alt="OpenWidget Windows Desktop Preview (English & Turkish Themes)" width="760" />
+</p>
+
 ---
 
 ## 🇬🇧 English Overview
