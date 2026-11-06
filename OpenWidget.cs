@@ -316,8 +316,12 @@ namespace OpenWidget
             }
         }
 
+        private static readonly Dictionary<string, string> usbProdNameCache = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
         public static string ReadUsbProductName(string hidPath, string fallback)
         {
+            string cached;
+            if (usbProdNameCache.TryGetValue(hidPath, out cached)) return cached;
             try
             {
                 IntPtr h = CreateFile(hidPath, 0, 3, IntPtr.Zero, 3, 0, IntPtr.Zero);
@@ -329,7 +333,11 @@ namespace OpenWidget
                         if (HidD_GetProductString(h, sb, 256))
                         {
                             string s = sb.ToString().Trim();
-                            if (!string.IsNullOrEmpty(s)) return s;
+                            if (!string.IsNullOrEmpty(s))
+                            {
+                                usbProdNameCache[hidPath] = s;
+                                return s;
+                            }
                         }
                     }
                     finally
@@ -884,20 +892,25 @@ namespace OpenWidget
         [DllImport("shcore.dll")]
         private static extern int SetProcessDpiAwareness(int value);
 
+        private static ImageSource cachedWindowIcon;
         public static void TryApplyWindowIcon(Window w)
         {
             try
             {
-                string exePath = System.Reflection.Assembly.GetExecutingAssembly().Location;
-                using (System.Drawing.Icon ico = System.Drawing.Icon.ExtractAssociatedIcon(exePath))
+                if (cachedWindowIcon == null)
                 {
-                    if (ico != null)
+                    string exePath = System.Reflection.Assembly.GetExecutingAssembly().Location;
+                    using (System.Drawing.Icon ico = System.Drawing.Icon.ExtractAssociatedIcon(exePath))
                     {
-                        ImageSource img = Imaging.CreateBitmapSourceFromHIcon(ico.Handle, Int32Rect.Empty, System.Windows.Media.Imaging.BitmapSizeOptions.FromEmptyOptions());
-                        img.Freeze();
-                        w.Icon = img;
+                        if (ico != null)
+                        {
+                            ImageSource img = Imaging.CreateBitmapSourceFromHIcon(ico.Handle, Int32Rect.Empty, System.Windows.Media.Imaging.BitmapSizeOptions.FromEmptyOptions());
+                            img.Freeze();
+                            cachedWindowIcon = img;
+                        }
                     }
                 }
+                if (cachedWindowIcon != null) w.Icon = cachedWindowIcon;
             }
             catch { }
         }
@@ -1685,10 +1698,19 @@ namespace OpenWidget
         private TextBlock[] txtDayTemps = new TextBlock[3];
 
         // Wireless Peripherals Battery UI & State (Auto-Detects Mouse, Keyboard, Headset, Controller)
+        private class WirelessRowUi
+        {
+            public Grid Row;
+            public TextBlock Label;
+            public TextBlock Detail;
+            public Border Fill;
+            public TextBlock Pct;
+        }
         private Grid wirelessHeaderGrid;
         private TextBlock txtWirelessSectionTitle;
         private Button btnRefreshWireless;
         private StackPanel panelWirelessContent;
+        private Dictionary<string, WirelessRowUi> wirelessRowCache = new Dictionary<string, WirelessRowUi>(StringComparer.OrdinalIgnoreCase);
         private Dictionary<string, int> wirelessLastPcts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         private Dictionary<string, string> wirelessLastHz = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         private int wirelessPollingBusy = 0;
@@ -2212,10 +2234,17 @@ namespace OpenWidget
             return IntPtr.Zero;
         }
 
+        private static readonly Dictionary<string, SolidColorBrush> brushCache = new Dictionary<string, SolidColorBrush>(StringComparer.OrdinalIgnoreCase);
+
         private Brush HexBrush(string hex)
         {
-            SolidColorBrush b = (SolidColorBrush)new BrushConverter().ConvertFromString(hex);
-            if (b.CanFreeze) b.Freeze();
+            SolidColorBrush b;
+            if (!brushCache.TryGetValue(hex, out b))
+            {
+                b = (SolidColorBrush)new BrushConverter().ConvertFromString(hex);
+                if (b.CanFreeze) b.Freeze();
+                brushCache[hex] = b;
+            }
             return b;
         }
 
@@ -3984,12 +4013,17 @@ namespace OpenWidget
             {
                 mediumTickCount++;
                 bool pollWirelessNow = (mediumTickCount % 3 == 0);
+                bool trimNow = (mediumTickCount % 20 == 0);
                 Task.Run(() =>
                 {
                     UpdatePingAsync();
                     if (pollWirelessNow)
                     {
                         PollWirelessDevicesAsync();
+                    }
+                    if (trimNow)
+                    {
+                        TrimProcessMemory();
                     }
                 });
             };
@@ -4223,19 +4257,30 @@ namespace OpenWidget
                     bool countChanged = (activeList.Count != lastWirelessCount);
                     lastWirelessCount = activeList.Count;
 
-                    panelWirelessContent.Children.Clear();
+                    foreach (var kv in wirelessRowCache)
+                    {
+                        kv.Value.Row.Visibility = Visibility.Collapsed;
+                    }
+
                     SolidColorBrush accentBrush = (SolidColorBrush)HexBrush(accentColorHex);
 
                     foreach (WirelessDeviceReading dev in activeList)
                     {
-                        TextBlock lblBlock, detBlock, pctBlock;
-                        Border fillBar;
-                        Grid row = CreateTelemetryBarRow(dev.Icon, dev.Name, dev.Detail, true, out lblBlock, out detBlock, out fillBar, out pctBlock);
-                        pctBlock.Text = dev.PctText;
-                        pctBlock.Foreground = accentBrush;
-                        fillBar.Background = accentBrush;
-                        fillBar.Width = dev.BarPct > 0 ? Math.Max(3, (42.0 * dev.BarPct) / 100.0) : 0;
-                        panelWirelessContent.Children.Add(row);
+                        WirelessRowUi ui;
+                        if (!wirelessRowCache.TryGetValue(dev.IdKey, out ui))
+                        {
+                            ui = new WirelessRowUi();
+                            ui.Row = CreateTelemetryBarRow(dev.Icon, dev.Name, dev.Detail, true, out ui.Label, out ui.Detail, out ui.Fill, out ui.Pct);
+                            wirelessRowCache[dev.IdKey] = ui;
+                            panelWirelessContent.Children.Add(ui.Row);
+                        }
+                        ui.Row.Visibility = Visibility.Visible;
+                        ui.Label.Text = dev.Name;
+                        ui.Detail.Text = dev.Detail;
+                        ui.Pct.Text = dev.PctText;
+                        ui.Pct.Foreground = accentBrush;
+                        ui.Fill.Background = accentBrush;
+                        ui.Fill.Width = dev.BarPct > 0 ? Math.Max(3, (42.0 * dev.BarPct) / 100.0) : 0;
                     }
 
                     Visibility targetVis = activeList.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
