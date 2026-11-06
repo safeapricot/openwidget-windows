@@ -263,6 +263,24 @@ namespace OpenWidget
         [DllImport("shcore.dll")]
         private static extern int SetProcessDpiAwareness(int value);
 
+        public static void TryApplyWindowIcon(Window w)
+        {
+            try
+            {
+                string exePath = System.Reflection.Assembly.GetExecutingAssembly().Location;
+                using (System.Drawing.Icon ico = System.Drawing.Icon.ExtractAssociatedIcon(exePath))
+                {
+                    if (ico != null)
+                    {
+                        ImageSource img = Imaging.CreateBitmapSourceFromHIcon(ico.Handle, Int32Rect.Empty, System.Windows.Media.Imaging.BitmapSizeOptions.FromEmptyOptions());
+                        img.Freeze();
+                        w.Icon = img;
+                    }
+                }
+            }
+            catch { }
+        }
+
         [STAThread]
         public static void Main(string[] args)
         {
@@ -348,6 +366,7 @@ namespace OpenWidget
             this.FontFamily = new FontFamily("Segoe UI");
             TextOptions.SetTextFormattingMode(this, TextFormattingMode.Display);
             TextOptions.SetTextRenderingMode(this, TextRenderingMode.ClearType);
+            Program.TryApplyWindowIcon(this);
 
             BuildWizardUi();
         }
@@ -1277,6 +1296,7 @@ namespace OpenWidget
         private void InitializeWindowProps()
         {
             this.Title = "OpenWidget Desktop";
+            Program.TryApplyWindowIcon(this);
             this.MinWidth = 335;
             this.MinHeight = 380;
             this.Width = savedFreeWidth;
