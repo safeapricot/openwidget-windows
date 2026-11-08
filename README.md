@@ -24,20 +24,27 @@
 
 ## Overview
 
-**OpenWidget** is a single-file, zero-dependency native Windows desktop widget written in C# & WPF with direct Win32, USB HID, CoreAudio COM, and NVIDIA NVML C-API calls. Unlike Electron or web-based widgets that consume 300–500 MB of RAM, OpenWidget is compiled into a **197 KB native executable** (including embedded multi-resolution icons) and uses only **~23 MB of RAM** with **0.0% idle CPU**.
+**OpenWidget** is a single-file, zero-dependency native Windows desktop widget written in C# & WPF with direct Win32, DisplayConfig SDR/DDC, USB HID, CoreAudio COM, and NVIDIA NVML C-API calls. Unlike Electron or web-based widgets that consume 300–500 MB of RAM, OpenWidget is compiled into a **230 KB native executable** (including embedded multi-resolution icons) and uses only **~23 MB of RAM** with **0.0% idle CPU**.
 
 ### Key Features
 - **Interactive First-Run Setup Wizard:**
   - Automatically launches on first run (or via `--setup`).
   - **Weather Location Choice:** Auto-detect via **GPS / Location Services**, or type any **City / District** worldwide (e.g., `London`, `New York`, `Istanbul / Kadikoy`).
   - **Custom Theme Color & Shortcuts:** Pick your favorite accent color, create a Desktop shortcut, and enable Windows Startup auto-launch.
+- **Auto-Detected Monitor Brightness Control (HDR SDR White Level & DDC/CI):**
+  - Automatically detects connected monitors and their friendly model names, adding smooth brightness sliders (`0%–100%`), mouse-wheel step control (`±5%`), **`Linked / Separate`** multi-monitor sync toggle, and instant presets (`15%`, `40%`, `75%`, `100%`).
+  - **HDR Lock Bypass:** Automatically uses Windows native **SDR Content Brightness (`DisplayConfigSetDeviceInfo`)** on HDR-enabled displays (where hardware VCP `0x10` is locked by monitor firmware) and hardware **DDC/CI (`dxva2.dll`)** on standard SDR displays — replacing 140 MB Electron brightness utilities with zero background overhead.
+- **Customizable Layout, Drag-and-Drop Reordering & Granular Visibility (`Layout & Modules`):**
+  - Open **Settings → Layout & Modules** to individually toggle **Weather**, **Monitor Brightness**, **Wireless Devices**, **Telemetry**, and **Clipboard History** on or off.
+  - **Drag & Drop Reordering:** Hold and drag any module row (or use the `▲` / `▼` buttons) to customize the exact vertical order of sections on your widget.
+  - **Granular Telemetry Toggles:** Individually show or hide **CPU**, **RAM**, **GPU**, **VRAM**, **Network & Ping**, and **Drives** inside the Telemetry card.
 - **Live Weather & 3-Day Forecast:** Current temperature, feels-like, humidity, wind speed, precipitation, and 3-day min/max forecast powered by Open-Meteo (no API key required).
 - **Auto-Detected Wireless Peripherals Battery & Polling Rate Telemetry:**
   - Automatically detects connected wireless **Mice**, **Keyboards**, **Headsets**, and **Controllers/Gamepads** along with their real product names.
   - Supports **Windows Native Bluetooth / BLE Battery Service (`DEVPKEY_Device_BatteryLife`)**, **XInput / DirectInput Wireless Gamepads**, **CompX 4K/8K Wireless Gaming Mice** (Scyrox, VXE, ATK, etc. — including real hardware **Polling Rate `125 Hz – 8000 Hz`** and battery voltage), and **HyperX Wireless Headsets** directly via non-blocking Overlapped USB HID I/O — zero manufacturer bloatware needed.
   - Automatically hides turned-off devices (and hides the entire section if no wireless peripherals are active).
 - **Zero-Overhead Hardware Telemetry (Auto-Detects Your PC):**
-  - **CPU:** Automatically detects your processor model name, live utilization, sparkline graph, and temperature.
+  - **CPU:** Automatically detects your processor model name, live utilization, sparkline graph, and temperature (`°C` shown ahead of processor name for laptop compatibility).
   - **RAM:** Live physical memory usage & progress bar via Win32 `GlobalMemoryStatusEx`.
   - **GPU & VRAM:** Direct `nvml.dll` C-API integration for NVIDIA GPUs (zero `nvidia-smi.exe` subprocess spawning).
   - **Network & Ping:** Real-time download/upload bitrate (`Mbps` / `Kbps`) and live latency (`ms`) badge.
@@ -66,13 +73,20 @@ OpenWidget compiles out-of-the-box using the native .NET Framework 64-bit compil
 
 ## Genel Bakış
 
-**OpenWidget**, Windows 10 ve 11 için C# / WPF ve doğrudan Win32, USB HID, CoreAudio COM ve NVIDIA NVML C-API çağrılarıyla sıfırdan geliştirilmiş, tek dosyalık (`OpenWidget.exe` — gömülü çoklu-çözünürlüklü ikonlarıyla birlikte **197 KB**), ultra hafif bir masaüstü widget uygulamasıdır.
+**OpenWidget**, Windows 10 ve 11 için C# / WPF ve doğrudan Win32, DisplayConfig SDR/DDC, USB HID, CoreAudio COM ve NVIDIA NVML C-API çağrılarıyla sıfırdan geliştirilmiş, tek dosyalık (`OpenWidget.exe` — gömülü çoklu-çözünürlüklü ikonlarıyla birlikte **230 KB**), ultra hafif bir masaüstü widget uygulamasıdır.
 
 ### Öne Çıkan Özellikler
 - **Etkileşimli Kurulum Yardımcısı:**
   - İlk açılışta otomatik olarak karşınıza çıkar:
   - **Hava Durumu Konumu:** İster **Otomatik Algıla (GPS / Konum Servisi)** seçin, ister **Sabit İl / İlçe** (Örn: `İstanbul / Kadıköy`, `Ankara`, `Kütahya / Merkez`) yazın.
   - **Tema ve Kısayollar:** Başlangıç tema renginizi seçin, Masaüstü kısayolu ve Windows başlangıcında otomatik açılma ayarlarını tek tıkla tamamlayın.
+- **Otomatik Monitör Parlaklığı Kontrolü (HDR SDR İçerik Parlaklığı & DDC/CI):**
+  - Bağlı monitörlerinizi ve gerçek model isimlerini otomatik algılayarak her monitör için parlaklık slider'ı (`%0–%100`), fare tekerleği ile `±%5` hassas kontrol, **`Birlikte / Ayrı`** senkronizasyon modu ve hızlı mod butonları (`%15`, `%40`, `%75`, `%100`) ekler.
+  - **HDR Kilit Çözümü:** HDR açıkken donanımsal parlaklığı kilitleyen monitörlerde Windows'un yerel **SDR İçerik Parlaklığı (`DisplayConfigSetDeviceInfo`)** motorunu, standart SDR ekranlarda ise doğrudan **DDC/CI (`dxva2.dll`)** protokolünü sıfır gecikmeyle kullanır.
+- **Özelleştirilebilir Widget Düzeni & Sürükle-Bırak Sıralama (`Düzen & Modüller`):**
+  - **Ayarlar → Düzen & Modüller** sekmesinden **Hava Durumu**, **Monitör Parlaklığı**, **Kablosuz Cihazlar**, **Telemetri** ve **Pano Geçmişi** bölümlerinden hangilerinin gösterileceğini tek tıkla seçebilirsiniz.
+  - **Tut-Bırak (Drag & Drop) Sıralama:** Modülleri basılı tutup yukarı/aşağı sürükleyerek (veya `▲` / `▼` butonlarıyla) widget üzerindeki sıralamasını istediğiniz gibi değiştirebilirsiniz.
+  - **Detaylı Telemetri Seçimi:** Telemetri kartı içindeki **İşlemci (CPU)**, **Bellek (RAM)**, **Ekran Kartı (GPU)**, **Video Belleği (VRAM)**, **Ağ Trafiği** ve **Diskler** satırlarını ayrı ayrı açıp kapatabilirsiniz.
 - **Canlı Hava Durumu & 3 Günlük Tahmin:** Anlık sıcaklık, hissedilen sıcaklık, nem, rüzgar, yağış ve 3 günlük tahmin.
 - **Otomatik Kablosuz Cihaz (Fare, Klavye, Kulaklık, Kumanda) Şarj & Hz Takibi:**
   - Bilgisayarınıza bağlı kablosuz **Fare**, **Klavye**, **Kulaklık** ve **Oyun Kumandalarını** türünü ve gerçek cihaz ismini algılayarak otomatik listeler.

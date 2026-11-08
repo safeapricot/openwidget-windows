@@ -1498,6 +1498,303 @@ namespace OpenWidget
     }
 
     // ========================================================
+    // MONITOR DDC/CI & WINDOWS SDR WHITE LEVEL NATIVE ENGINE
+    // ========================================================
+    internal static class MonitorDdcNative
+    {
+        [StructLayout(LayoutKind.Sequential)]
+        public struct RECT
+        {
+            public int left, top, right, bottom;
+        }
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+        public struct MONITORINFOEX
+        {
+            public int cbSize;
+            public RECT rcMonitor;
+            public RECT rcWork;
+            public uint dwFlags;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+            public string szDevice;
+        }
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        public struct PHYSICAL_MONITOR
+        {
+            public IntPtr hPhysicalMonitor;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
+            public string szPhysicalMonitorDescription;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct LUID
+        {
+            public uint LowPart;
+            public int HighPart;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct DISPLAYCONFIG_PATH_SOURCE_INFO
+        {
+            public LUID adapterId;
+            public uint id;
+            public uint modeInfoIdx;
+            public uint statusFlags;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct DISPLAYCONFIG_PATH_TARGET_INFO
+        {
+            public LUID adapterId;
+            public uint id;
+            public uint modeInfoIdx;
+            public uint outputTechnology;
+            public uint rotation;
+            public uint scaling;
+            public uint refreshRateNumerator;
+            public uint refreshRateDenominator;
+            public uint scanLineOrdering;
+            public int targetAvailable;
+            public uint statusFlags;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct DISPLAYCONFIG_PATH_INFO
+        {
+            public DISPLAYCONFIG_PATH_SOURCE_INFO sourceInfo;
+            public DISPLAYCONFIG_PATH_TARGET_INFO targetInfo;
+            public uint flags;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct DISPLAYCONFIG_MODE_INFO
+        {
+            public uint infoType;
+            public uint id;
+            public LUID adapterId;
+            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 48)]
+            public byte[] data;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct DISPLAYCONFIG_DEVICE_INFO_HEADER
+        {
+            public int type;
+            public uint size;
+            public LUID adapterId;
+            public uint id;
+        }
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        public struct DISPLAYCONFIG_SOURCE_DEVICE_NAME
+        {
+            public DISPLAYCONFIG_DEVICE_INFO_HEADER header;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+            public string viewGdiDeviceName;
+        }
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        public struct DISPLAYCONFIG_TARGET_DEVICE_NAME
+        {
+            public DISPLAYCONFIG_DEVICE_INFO_HEADER header;
+            public uint flags;
+            public uint outputTechnology;
+            public ushort edidManufactureId;
+            public ushort edidProductCodeId;
+            public uint connectorInstance;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 64)]
+            public string monitorFriendlyDeviceName;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
+            public string monitorDevicePath;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct DISPLAYCONFIG_SDR_WHITE_LEVEL
+        {
+            public DISPLAYCONFIG_DEVICE_INFO_HEADER header;
+            public uint SDRWhiteLevel;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct DISPLAYCONFIG_SET_SDR_WHITE_LEVEL
+        {
+            public DISPLAYCONFIG_DEVICE_INFO_HEADER header;
+            public uint SDRWhiteLevel;
+            public byte finalValue;
+            public byte pad1;
+            public byte pad2;
+            public byte pad3;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO
+        {
+            public DISPLAYCONFIG_DEVICE_INFO_HEADER header;
+            public uint value;
+            public int colorEncoding;
+            public uint bitsPerColorChannel;
+        }
+
+        public delegate bool MonitorEnumProc(IntPtr hMonitor, IntPtr hdcMonitor, ref RECT lprcMonitor, IntPtr dwData);
+
+        [DllImport("user32.dll")]
+        public static extern bool EnumDisplayMonitors(IntPtr hdc, IntPtr lprcClip, MonitorEnumProc lpfnEnum, IntPtr dwData);
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        public static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFOEX lpmi);
+
+        [DllImport("user32.dll")]
+        public static extern int GetDisplayConfigBufferSizes(uint flags, out uint numPathArrayElements, out uint numModeInfoArrayElements);
+
+        [DllImport("user32.dll")]
+        public static extern int QueryDisplayConfig(uint flags, ref uint numPathArrayElements, [Out] DISPLAYCONFIG_PATH_INFO[] pathArray, ref uint numModeInfoArrayElements, [Out] DISPLAYCONFIG_MODE_INFO[] modeInfoArray, IntPtr currentTopologyId);
+
+        [DllImport("user32.dll")]
+        public static extern int DisplayConfigGetDeviceInfo(ref DISPLAYCONFIG_SOURCE_DEVICE_NAME requestPacket);
+
+        [DllImport("user32.dll")]
+        public static extern int DisplayConfigGetDeviceInfo(ref DISPLAYCONFIG_TARGET_DEVICE_NAME requestPacket);
+
+        [DllImport("user32.dll")]
+        public static extern int DisplayConfigGetDeviceInfo(ref DISPLAYCONFIG_SDR_WHITE_LEVEL requestPacket);
+
+        [DllImport("user32.dll")]
+        public static extern int DisplayConfigGetDeviceInfo(ref DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO requestPacket);
+
+        [DllImport("user32.dll")]
+        public static extern int DisplayConfigSetDeviceInfo(ref DISPLAYCONFIG_SET_SDR_WHITE_LEVEL setPacket);
+
+        [DllImport("dxva2.dll", SetLastError = true)]
+        public static extern bool GetNumberOfPhysicalMonitorsFromHMONITOR(IntPtr hMonitor, out uint pdwNumberOfPhysicalMonitors);
+
+        [DllImport("dxva2.dll", SetLastError = true)]
+        public static extern bool GetPhysicalMonitorsFromHMONITOR(IntPtr hMonitor, uint dwPhysicalMonitorArraySize, [Out] PHYSICAL_MONITOR[] pPhysicalMonitorArray);
+
+        [DllImport("dxva2.dll", SetLastError = true)]
+        public static extern bool GetVCPFeatureAndVCPFeatureReply(IntPtr hMonitor, byte bVCPCode, out uint pvct, out uint pdwCurrentValue, out uint pdwMaximumValue);
+
+        [DllImport("dxva2.dll", SetLastError = true)]
+        public static extern bool SetVCPFeature(IntPtr hMonitor, byte bVCPCode, uint dwNewValue);
+
+        [DllImport("dxva2.dll", SetLastError = true)]
+        public static extern bool DestroyPhysicalMonitor(IntPtr hMonitor);
+
+        public const byte VCP_BRIGHTNESS = 0x10;
+
+        public class WinDisplayTargetInfo
+        {
+            public string GdiDeviceName;
+            public string FriendlyName;
+            public LUID AdapterId;
+            public uint TargetId;
+            public bool HdrEnabled;
+            public int SdrBrightnessPct;
+        }
+
+        public static List<WinDisplayTargetInfo> QueryActiveDisplayTargets()
+        {
+            List<WinDisplayTargetInfo> list = new List<WinDisplayTargetInfo>();
+            try
+            {
+                uint np, nm;
+                if (GetDisplayConfigBufferSizes(2, out np, out nm) != 0) return list;
+                DISPLAYCONFIG_PATH_INFO[] paths = new DISPLAYCONFIG_PATH_INFO[np];
+                DISPLAYCONFIG_MODE_INFO[] modes = new DISPLAYCONFIG_MODE_INFO[nm];
+                if (QueryDisplayConfig(2, ref np, paths, ref nm, modes, IntPtr.Zero) != 0) return list;
+
+                for (int i = 0; i < np; i++)
+                {
+                    var p = paths[i];
+                    var srcName = new DISPLAYCONFIG_SOURCE_DEVICE_NAME();
+                    srcName.header.type = 1;
+                    srcName.header.size = (uint)Marshal.SizeOf(typeof(DISPLAYCONFIG_SOURCE_DEVICE_NAME));
+                    srcName.header.adapterId = p.sourceInfo.adapterId;
+                    srcName.header.id = p.sourceInfo.id;
+                    DisplayConfigGetDeviceInfo(ref srcName);
+
+                    var tName = new DISPLAYCONFIG_TARGET_DEVICE_NAME();
+                    tName.header.type = 2;
+                    tName.header.size = (uint)Marshal.SizeOf(typeof(DISPLAYCONFIG_TARGET_DEVICE_NAME));
+                    tName.header.adapterId = p.targetInfo.adapterId;
+                    tName.header.id = p.targetInfo.id;
+                    DisplayConfigGetDeviceInfo(ref tName);
+
+                    var adv = new DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO();
+                    adv.header.type = 9;
+                    adv.header.size = (uint)Marshal.SizeOf(typeof(DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO));
+                    adv.header.adapterId = p.targetInfo.adapterId;
+                    adv.header.id = p.targetInfo.id;
+                    DisplayConfigGetDeviceInfo(ref adv);
+                    bool hdrActive = ((adv.value & 0x2) != 0);
+
+                    var sdr = new DISPLAYCONFIG_SDR_WHITE_LEVEL();
+                    sdr.header.type = 11;
+                    sdr.header.size = (uint)Marshal.SizeOf(typeof(DISPLAYCONFIG_SDR_WHITE_LEVEL));
+                    sdr.header.adapterId = p.targetInfo.adapterId;
+                    sdr.header.id = p.targetInfo.id;
+                    int sdrRc = DisplayConfigGetDeviceInfo(ref sdr);
+
+                    int pct = 60;
+                    if (sdrRc == 0 && sdr.SDRWhiteLevel >= 1000)
+                    {
+                        pct = (int)Math.Round((sdr.SDRWhiteLevel - 1000) / 50.0);
+                        pct = Math.Max(0, Math.Min(100, pct));
+                    }
+
+                    list.Add(new WinDisplayTargetInfo
+                    {
+                        GdiDeviceName = srcName.viewGdiDeviceName,
+                        FriendlyName = tName.monitorFriendlyDeviceName,
+                        AdapterId = p.targetInfo.adapterId,
+                        TargetId = p.targetInfo.id,
+                        HdrEnabled = hdrActive,
+                        SdrBrightnessPct = pct
+                    });
+                }
+            }
+            catch { }
+            return list;
+        }
+
+        public static bool SetSdrWhiteLevelPercent(LUID adapterId, uint targetId, int pct)
+        {
+            try
+            {
+                int clamped = Math.Max(0, Math.Min(100, pct));
+                uint rawWhiteLevel = (uint)(1000 + clamped * 50);
+
+                var setPkt = new DISPLAYCONFIG_SET_SDR_WHITE_LEVEL();
+                setPkt.header.type = -18;
+                setPkt.header.size = (uint)Marshal.SizeOf(typeof(DISPLAYCONFIG_SET_SDR_WHITE_LEVEL));
+                setPkt.header.adapterId = adapterId;
+                setPkt.header.id = targetId;
+                setPkt.SDRWhiteLevel = rawWhiteLevel;
+                setPkt.finalValue = 1;
+                return DisplayConfigSetDeviceInfo(ref setPkt) == 0;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+    }
+
+    internal class PhysicalMonitorSlot
+    {
+        public IntPtr Handle = IntPtr.Zero;
+        public string Name = "Monitor";
+        public uint MinVal = 0;
+        public uint MaxVal = 100;
+        public int CurrentBrightness = 60;
+        public int PendingBrightness = -1;
+        public int WorkerBusy = 0;
+        public bool UseWindowsSdrWhiteLevel = false;
+        public MonitorDdcNative.LUID AdapterId;
+        public uint TargetId = 0;
+    }
+
+    // ========================================================
     // MAIN WIDGET WINDOW (PUBLIC EDITION - NO BULB BLOAT)
     // ========================================================
     public class MainWindow : Window
@@ -1716,9 +2013,54 @@ namespace OpenWidget
         private int wirelessPollingBusy = 0;
         private int lastWirelessCount = 0;
 
+        // Monitor Brightness UI & State (Auto-Detects Connected Displays, HDR SDRWhiteLevel + DDC/CI)
+        private readonly List<PhysicalMonitorSlot> monitorSlots = new List<PhysicalMonitorSlot>();
+        private readonly object monitorHandleLock = new object();
+        private bool monitorLinkSync = false;
+        private bool isUpdatingMonitorUi = false;
+        private Grid monHeaderGrid;
+        private TextBlock txtMonitorSectionTitle;
+        private Button btnMonitorLink;
+        private Button btnRefreshMonitors;
+        private Border monitorCard;
+        private StackPanel monRowsHostStack;
+        private List<TextBlock> txtMonitorNames = new List<TextBlock>();
+        private List<TextBlock> txtMonitorPercents = new List<TextBlock>();
+        private List<Slider> sliderMonitors = new List<Slider>();
+        private List<Border> monitorSliderContainers = new List<Border>();
+
+        // Layout Order & Visibility State
+        private List<string> sectionOrder = new List<string> { "weather", "monitors", "wireless", "telemetry", "clipboard" };
+        private bool showSecWeather = true;
+        private bool showSecMonitors = true;
+        private bool showSecWireless = true;
+        private bool showSecTelemetry = true;
+        private bool showSecClipboard = true;
+        private bool showTeleCpu = true;
+        private bool showTeleRam = true;
+        private bool showTeleGpu = true;
+        private bool showTeleVram = true;
+        private bool showTeleNet = true;
+        private bool showTeleDisks = true;
+        private int currentSettingsTab = 0;
+
+        // Section Root Containers for Dynamic Reordering
+        private StackPanel modulesHostPanel;
+        private StackPanel secContainerWeather;
+        private StackPanel secContainerMonitors;
+        private StackPanel secContainerWireless;
+        private StackPanel secContainerTelemetry;
+        private StackPanel secContainerClipboard;
+
         // Telemetry UI
         private TextBlock txtTelemetrySectionTitle;
         private StackPanel panelTelemetryContent;
+        private Grid rowTeleCpu;
+        private Grid rowTeleRam;
+        private Grid rowTeleGpu;
+        private Grid rowTeleVram;
+        private Grid rowTeleNet;
+        private List<Grid> rowsTeleDisks = new List<Grid>();
         private TextBlock txtCpuRowLabel;
         private TextBlock txtCpuDetail;
         private TextBlock txtCpuPct;
@@ -1887,6 +2229,47 @@ namespace OpenWidget
                                 if (double.TryParse(v, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out t))
                                     savedTop = t;
                             }
+                            else if (k == "MonitorLink")
+                                monitorLinkSync = (v == "1" || v.Equals("true", StringComparison.OrdinalIgnoreCase));
+                            else if (k == "ShowWeather")
+                                showSecWeather = (v != "0" && !v.Equals("false", StringComparison.OrdinalIgnoreCase));
+                            else if (k == "ShowMonitors")
+                                showSecMonitors = (v != "0" && !v.Equals("false", StringComparison.OrdinalIgnoreCase));
+                            else if (k == "ShowWireless")
+                                showSecWireless = (v != "0" && !v.Equals("false", StringComparison.OrdinalIgnoreCase));
+                            else if (k == "ShowTelemetry")
+                                showSecTelemetry = (v != "0" && !v.Equals("false", StringComparison.OrdinalIgnoreCase));
+                            else if (k == "ShowClipboard")
+                                showSecClipboard = (v != "0" && !v.Equals("false", StringComparison.OrdinalIgnoreCase));
+                            else if (k == "ShowTeleCpu")
+                                showTeleCpu = (v != "0" && !v.Equals("false", StringComparison.OrdinalIgnoreCase));
+                            else if (k == "ShowTeleRam")
+                                showTeleRam = (v != "0" && !v.Equals("false", StringComparison.OrdinalIgnoreCase));
+                            else if (k == "ShowTeleGpu")
+                                showTeleGpu = (v != "0" && !v.Equals("false", StringComparison.OrdinalIgnoreCase));
+                            else if (k == "ShowTeleVram")
+                                showTeleVram = (v != "0" && !v.Equals("false", StringComparison.OrdinalIgnoreCase));
+                            else if (k == "ShowTeleNet")
+                                showTeleNet = (v != "0" && !v.Equals("false", StringComparison.OrdinalIgnoreCase));
+                            else if (k == "ShowTeleDisks")
+                                showTeleDisks = (v != "0" && !v.Equals("false", StringComparison.OrdinalIgnoreCase));
+                            else if (k == "SectionOrder" && !string.IsNullOrEmpty(v))
+                            {
+                                string[] parts = v.Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+                                List<string> parsed = new List<string>();
+                                string[] validKeys = { "weather", "monitors", "wireless", "telemetry", "clipboard" };
+                                foreach (string p in parts)
+                                {
+                                    string clean = p.Trim().ToLowerInvariant();
+                                    if (Array.IndexOf(validKeys, clean) >= 0 && !parsed.Contains(clean))
+                                        parsed.Add(clean);
+                                }
+                                foreach (string vk in validKeys)
+                                {
+                                    if (!parsed.Contains(vk)) parsed.Add(vk);
+                                }
+                                sectionOrder = parsed;
+                            }
                         }
                     }
                 }
@@ -1912,6 +2295,19 @@ namespace OpenWidget
                     sb.AppendLine("Left=" + savedLeft.ToString("0", System.Globalization.CultureInfo.InvariantCulture));
                 if (!double.IsNaN(savedTop))
                     sb.AppendLine("Top=" + savedTop.ToString("0", System.Globalization.CultureInfo.InvariantCulture));
+                sb.AppendLine("MonitorLink=" + (monitorLinkSync ? "1" : "0"));
+                sb.AppendLine("SectionOrder=" + string.Join(",", sectionOrder.ToArray()));
+                sb.AppendLine("ShowWeather=" + (showSecWeather ? "1" : "0"));
+                sb.AppendLine("ShowMonitors=" + (showSecMonitors ? "1" : "0"));
+                sb.AppendLine("ShowWireless=" + (showSecWireless ? "1" : "0"));
+                sb.AppendLine("ShowTelemetry=" + (showSecTelemetry ? "1" : "0"));
+                sb.AppendLine("ShowClipboard=" + (showSecClipboard ? "1" : "0"));
+                sb.AppendLine("ShowTeleCpu=" + (showTeleCpu ? "1" : "0"));
+                sb.AppendLine("ShowTeleRam=" + (showTeleRam ? "1" : "0"));
+                sb.AppendLine("ShowTeleGpu=" + (showTeleGpu ? "1" : "0"));
+                sb.AppendLine("ShowTeleVram=" + (showTeleVram ? "1" : "0"));
+                sb.AppendLine("ShowTeleNet=" + (showTeleNet ? "1" : "0"));
+                sb.AppendLine("ShowTeleDisks=" + (showTeleDisks ? "1" : "0"));
                 File.WriteAllText(settingsFilePath, sb.ToString());
             }
             catch { }
@@ -2079,6 +2475,7 @@ namespace OpenWidget
                 }
                 catch { }
                 try { if (nvmlInitialized) NvmlNative.nvmlShutdown(); } catch { }
+                CleanupMonitorHandles();
                 try { if (sharedPing != null) sharedPing.Dispose(); } catch { }
                 if (trayIcon != null)
                 {
@@ -2332,6 +2729,21 @@ namespace OpenWidget
                     fill.Background = accentBrush;
                 }
 
+                for (int i = 0; i < monitorSliderContainers.Count && i < sliderMonitors.Count; i++)
+                {
+                    if (monitorSliderContainers[i] != null && sliderMonitors[i] != null)
+                    {
+                        int idx = i;
+                        double curVal = sliderMonitors[i].Value;
+                        Slider ms = CreateModernSlider(accentColorHex, curVal, 0, "6,0,8,0");
+                        ms.ValueChanged += (s, e) => OnMonitorSliderValueChanged(idx, e.NewValue);
+                        AttachMonitorSliderWheel(ms, idx);
+                        sliderMonitors[i] = ms;
+                        monitorSliderContainers[i].Child = ms;
+                    }
+                }
+
+                UpdateMonitorLinkButtonUi();
                 UpdateDraggableButtonUi();
 
                 if (toastBorder != null)
@@ -2418,7 +2830,11 @@ namespace OpenWidget
 
             rootStack.Children.Add(headerGrid);
 
+            modulesHostPanel = new StackPanel();
+            rootStack.Children.Add(modulesHostPanel);
+
             // 2. WEATHER SECTION
+            secContainerWeather = new StackPanel();
             Grid weatherTitleGrid = new Grid { Margin = new Thickness(0, 2, 0, 6) };
             weatherTitleGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             weatherTitleGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -2443,7 +2859,7 @@ namespace OpenWidget
             txtLocationBadge.MouseLeftButtonDown += (s, e) => Task.Run(() => FetchWeatherAsync());
             Grid.SetColumn(txtLocationBadge, 1);
             weatherTitleGrid.Children.Add(txtLocationBadge);
-            rootStack.Children.Add(weatherTitleGrid);
+            secContainerWeather.Children.Add(weatherTitleGrid);
 
             Border weatherCard = CreateGlassCard();
             StackPanel weatherStack = new StackPanel();
@@ -2517,9 +2933,98 @@ namespace OpenWidget
             }
             weatherStack.Children.Add(forecastGrid);
             weatherCard.Child = weatherStack;
-            rootStack.Children.Add(weatherCard);
+            secContainerWeather.Children.Add(weatherCard);
+
+            // 2B. MONITOR BRIGHTNESS SECTION (Auto-Detects Monitors, HDR SDRWhiteLevel + DDC/CI)
+            secContainerMonitors = new StackPanel { Visibility = Visibility.Collapsed };
+            monHeaderGrid = new Grid { Margin = new Thickness(0, 12, 0, 6), Cursor = Cursors.Hand, Tag = "Interactive" };
+            monHeaderGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            monHeaderGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            monHeaderGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            monHeaderGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            StackPanel monHeaderLeft = new StackPanel { Orientation = Orientation.Horizontal };
+            monHeaderLeft.Children.Add(new TextBlock { Text = "🖥 ", Foreground = HexBrush("#B8A99E"), FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center });
+            txtMonitorSectionTitle = new TextBlock { Text = L("Monitör Parlaklığı", "Monitor Brightness"), Foreground = HexBrush("#E6DDD6"), FontSize = 12.5, FontWeight = FontWeights.Medium, VerticalAlignment = VerticalAlignment.Center };
+            monHeaderLeft.Children.Add(txtMonitorSectionTitle);
+            Grid.SetColumn(monHeaderLeft, 0);
+            monHeaderGrid.Children.Add(monHeaderLeft);
+
+            btnMonitorLink = CreateStyledIconButton("#26201D", "#443831", L("Monitörlerin parlaklığını birlikte (senkron) değiştir", "Sync brightness across all monitors"));
+            btnMonitorLink.Padding = new Thickness(6, 2, 6, 2);
+            btnMonitorLink.Margin = new Thickness(0, 0, 4, 0);
+            btnMonitorLink.Click += (s, e) =>
+            {
+                e.Handled = true;
+                monitorLinkSync = !monitorLinkSync;
+                UpdateMonitorLinkButtonUi();
+                SaveSettings();
+                if (monitorLinkSync && sliderMonitors.Count > 0 && sliderMonitors[0] != null)
+                {
+                    SetMonitorBrightnessFromUi(0, (int)Math.Round(sliderMonitors[0].Value), true);
+                }
+            };
+            Grid.SetColumn(btnMonitorLink, 1);
+            monHeaderGrid.Children.Add(btnMonitorLink);
+
+            btnRefreshMonitors = CreateStyledIconButton("Transparent", "Transparent", L("Monitör parlaklıklarını yeniden oku", "Re-read monitor brightness levels"));
+            btnRefreshMonitors.Padding = new Thickness(5, 1, 5, 1);
+            btnRefreshMonitors.Margin = new Thickness(0, 0, 4, 0);
+            btnRefreshMonitors.Content = new TextBlock { Text = "↻", Foreground = HexBrush("#B8A99E"), FontSize = 12, FontWeight = FontWeights.Bold };
+            btnRefreshMonitors.Click += (s, e) =>
+            {
+                e.Handled = true;
+                Task.Run(() => DiscoverAndSyncMonitors(true));
+                ShowToast(L("Monitör parlaklıkları okunuyor...", "Reading monitor brightness..."));
+            };
+            Grid.SetColumn(btnRefreshMonitors, 2);
+            monHeaderGrid.Children.Add(btnRefreshMonitors);
+
+            TextBlock monChevron = new TextBlock { Text = "⌄", Foreground = HexBrush("#B8A99E"), FontSize = 13, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center };
+            Grid.SetColumn(monChevron, 3);
+            monHeaderGrid.Children.Add(monChevron);
+
+            monitorCard = CreateGlassCard();
+            monHeaderGrid.MouseLeftButtonDown += (s, e) =>
+            {
+                if (monitorCard.Visibility == Visibility.Visible)
+                {
+                    monitorCard.Visibility = Visibility.Collapsed;
+                    monChevron.Text = "›";
+                }
+                else
+                {
+                    monitorCard.Visibility = Visibility.Visible;
+                    monChevron.Text = "⌄";
+                }
+            };
+            secContainerMonitors.Children.Add(monHeaderGrid);
+
+            StackPanel monCardStack = new StackPanel();
+            monRowsHostStack = new StackPanel();
+            monCardStack.Children.Add(monRowsHostStack);
+
+            UniformGrid monPresetGrid = new UniformGrid { Columns = 4, Margin = new Thickness(0, 4, 0, 0) };
+            int[] monPresetVals = { 15, 40, 75, 100 };
+            string[] monPresetIcons = { "🌙 ", "🔉 ", "🔆 ", "☀ " };
+            for (int i = 0; i < 4; i++)
+            {
+                int targetVal = monPresetVals[i];
+                string iconPrefix = monPresetIcons[i];
+                Button b = CreateStyledIconButton("#26201D", "#443831", L("Tüm monitörleri %", "Set all monitors to ") + targetVal + (IsEn ? "%" : " yap"));
+                b.Margin = new Thickness(i == 0 ? 0 : 2, 0, i == 3 ? 0 : 2, 0);
+                b.Padding = new Thickness(2, 3, 2, 3);
+                b.Content = new TextBlock { Text = iconPrefix + (IsEn ? (targetVal + "%") : ("%" + targetVal)), Foreground = HexBrush("#E6DDD6"), FontSize = 10, HorizontalAlignment = HorizontalAlignment.Center };
+                b.Click += (s, e) => SetMonitorBrightnessFromUi(0, targetVal, true);
+                monPresetGrid.Children.Add(b);
+            }
+            monCardStack.Children.Add(monPresetGrid);
+            monitorCard.Child = monCardStack;
+            secContainerMonitors.Children.Add(monitorCard);
+            UpdateMonitorLinkButtonUi();
 
             // 3. WIRELESS DEVICES SECTION (Auto-Discovers Connected Mouse, Keyboard, Headset, Controller)
+            secContainerWireless = new StackPanel { Visibility = Visibility.Collapsed };
             wirelessHeaderGrid = new Grid
             {
                 Margin = new Thickness(0, 12, 0, 4),
@@ -2570,10 +3075,11 @@ namespace OpenWidget
                     Task.Run(() => PollWirelessDevicesAsync());
                 }
             };
-            rootStack.Children.Add(wirelessHeaderGrid);
-            rootStack.Children.Add(panelWirelessContent);
+            secContainerWireless.Children.Add(wirelessHeaderGrid);
+            secContainerWireless.Children.Add(panelWirelessContent);
 
-            // 4. TELEMETRY SECTION (No Smart Bulb bloat in Public Edition!)
+            // 4. TELEMETRY SECTION
+            secContainerTelemetry = new StackPanel();
             Grid teleHeader = new Grid { Margin = new Thickness(0, 12, 0, 4), Cursor = Cursors.Hand, Tag = "Interactive" };
             teleHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             teleHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -2597,26 +3103,33 @@ namespace OpenWidget
                     teleChevron.Text = "⌄";
                 }
             };
-            rootStack.Children.Add(teleHeader);
+            secContainerTelemetry.Children.Add(teleHeader);
 
-            panelTelemetryContent.Children.Add(CreateTelemetrySparkRow("⚙", L("İşlemci (CPU)", "Processor (CPU)"), "46°C • " + cpuShortName, true, out txtCpuRowLabel, out txtCpuDetail, out sparkCpu, out txtCpuPct));
-            panelTelemetryContent.Children.Add(CreateTelemetryBarRow("📟", L("Bellek (RAM)", "Memory (RAM)"), "8.0 / 16 GB", true, out txtRamRowLabel, out txtRamDetail, out barRamFill, out txtRamPct));
-            panelTelemetryContent.Children.Add(CreateTelemetrySparkRow("🎮", L("Ekran Kartı (GPU)", "Graphics (GPU)"), "45°C • " + gpuModelName, true, out txtGpuRowLabel, out txtGpuDetail, out sparkGpu, out txtGpuPct));
-            panelTelemetryContent.Children.Add(CreateTelemetryBarRow("🎞", L("Video Belleği (VRAM)", "Video Memory (VRAM)"), "1.5 / 8 GB", true, out txtVramRowLabel, out txtVramDetail, out barVramFill, out txtVramPct));
+            rowTeleCpu = CreateTelemetrySparkRow("⚙", L("İşlemci (CPU)", "Processor (CPU)"), "46°C • " + cpuShortName, true, out txtCpuRowLabel, out txtCpuDetail, out sparkCpu, out txtCpuPct);
+            panelTelemetryContent.Children.Add(rowTeleCpu);
+
+            rowTeleRam = CreateTelemetryBarRow("📟", L("Bellek (RAM)", "Memory (RAM)"), "8.0 / 16 GB", true, out txtRamRowLabel, out txtRamDetail, out barRamFill, out txtRamPct);
+            panelTelemetryContent.Children.Add(rowTeleRam);
+
+            rowTeleGpu = CreateTelemetrySparkRow("🎮", L("Ekran Kartı (GPU)", "Graphics (GPU)"), "45°C • " + gpuModelName, true, out txtGpuRowLabel, out txtGpuDetail, out sparkGpu, out txtGpuPct);
+            panelTelemetryContent.Children.Add(rowTeleGpu);
+
+            rowTeleVram = CreateTelemetryBarRow("🎞", L("Video Belleği (VRAM)", "Video Memory (VRAM)"), "1.5 / 8 GB", true, out txtVramRowLabel, out txtVramDetail, out barVramFill, out txtVramPct);
+            panelTelemetryContent.Children.Add(rowTeleVram);
 
             // Network Row
-            Grid netRow = new Grid { Margin = new Thickness(0, 4, 0, 4) };
-            netRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            netRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            netRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            netRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            rowTeleNet = new Grid { Margin = new Thickness(0, 4, 0, 4) };
+            rowTeleNet.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            rowTeleNet.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            rowTeleNet.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            rowTeleNet.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
             StackPanel netLeft = new StackPanel { Orientation = Orientation.Horizontal };
             netLeft.Children.Add(CreateMiniIconBadge("⇄"));
             txtNetRowLabel = new TextBlock { Text = L("Ağ Trafiği", "Network"), Foreground = HexBrush("#F5EFEA"), FontSize = 12, FontWeight = FontWeights.Medium, VerticalAlignment = VerticalAlignment.Center };
             netLeft.Children.Add(txtNetRowLabel);
             Grid.SetColumn(netLeft, 0);
-            netRow.Children.Add(netLeft);
+            rowTeleNet.Children.Add(netLeft);
 
             txtNetSpeed = new TextBlock
             {
@@ -2628,7 +3141,7 @@ namespace OpenWidget
                 Margin = new Thickness(4, 0, 6, 0)
             };
             Grid.SetColumn(txtNetSpeed, 1);
-            netRow.Children.Add(txtNetSpeed);
+            rowTeleNet.Children.Add(txtNetSpeed);
 
             Border netBadgeBorder = new Border
             {
@@ -2645,7 +3158,7 @@ namespace OpenWidget
             accentTextBlocks.Add(txtNetBadge);
             netBadgeBorder.Child = txtNetBadge;
             Grid.SetColumn(netBadgeBorder, 2);
-            netRow.Children.Add(netBadgeBorder);
+            rowTeleNet.Children.Add(netBadgeBorder);
 
             txtNetPing = new TextBlock
             {
@@ -2658,8 +3171,8 @@ namespace OpenWidget
             };
             accentTextBlocks.Add(txtNetPing);
             Grid.SetColumn(txtNetPing, 3);
-            netRow.Children.Add(txtNetPing);
-            panelTelemetryContent.Children.Add(netRow);
+            rowTeleNet.Children.Add(txtNetPing);
+            panelTelemetryContent.Children.Add(rowTeleNet);
 
             // Dynamic Fixed Drives (Automatically adapts to whatever disks C:, D:, E: the user has!)
             for (int i = 0; i < fixedDrives.Count; i++)
@@ -2670,16 +3183,19 @@ namespace OpenWidget
                 TextBlock det;
                 Border fill;
                 TextBlock pct;
-                panelTelemetryContent.Children.Add(CreateTelemetryBarRow(i == 0 ? "💾" : "💿", dName + L(" Diski", " Drive"), L("... GB Boş", "... GB Free"), true, out rowLbl, out det, out fill, out pct));
+                Grid dRow = CreateTelemetryBarRow(i == 0 ? "💾" : "💿", dName + L(" Diski", " Drive"), L("... GB Boş", "... GB Free"), true, out rowLbl, out det, out fill, out pct);
+                panelTelemetryContent.Children.Add(dRow);
+                rowsTeleDisks.Add(dRow);
                 diskRowLabels.Add(rowLbl);
                 diskDetailBlocks.Add(det);
                 diskFillBars.Add(fill);
                 diskPctBlocks.Add(pct);
             }
 
-            rootStack.Children.Add(panelTelemetryContent);
+            secContainerTelemetry.Children.Add(panelTelemetryContent);
 
-            // 4. CLIPBOARD HISTORY SECTION
+            // 5. CLIPBOARD HISTORY SECTION
+            secContainerClipboard = new StackPanel();
             Grid clipHeader = new Grid { Margin = new Thickness(0, 12, 0, 6) };
             clipHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             clipHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -2716,10 +3232,12 @@ namespace OpenWidget
             clipCountBadge.Child = txtClipCount;
             Grid.SetColumn(clipCountBadge, 2);
             clipHeader.Children.Add(clipCountBadge);
-            rootStack.Children.Add(clipHeader);
+            secContainerClipboard.Children.Add(clipHeader);
 
             panelClipItems = new StackPanel();
-            rootStack.Children.Add(panelClipItems);
+            secContainerClipboard.Children.Add(panelClipItems);
+
+            ApplyLayoutAndVisibility();
 
             resizeGripIndicator = new Border
             {
@@ -2780,10 +3298,15 @@ namespace OpenWidget
 
         private Slider CreateModernSlider(string accentHex, double initialVal)
         {
+            return CreateModernSlider(accentHex, initialVal, 30, "0,2,0,10");
+        }
+
+        private Slider CreateModernSlider(string accentHex, double initialVal, double minVal, string marginStr)
+        {
             string xaml = string.Format(@"
             <Slider xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'
                     xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml'
-                    Minimum='30' Maximum='100' Value='{1}' IsMoveToPointEnabled='True' Cursor='Hand' Margin='0,2,0,10'>
+                    Minimum='{2}' Maximum='100' Value='{1}' IsMoveToPointEnabled='True' Cursor='Hand' Margin='{3}'>
                 <Slider.Template>
                     <ControlTemplate TargetType='Slider'>
                         <Grid VerticalAlignment='Center' Height='20'>
@@ -2820,8 +3343,58 @@ namespace OpenWidget
                         </Grid>
                     </ControlTemplate>
                 </Slider.Template>
-            </Slider>", accentHex, (int)Math.Round(initialVal));
+            </Slider>", accentHex, (int)Math.Round(initialVal), (int)Math.Round(minVal), marginStr);
             return (Slider)System.Windows.Markup.XamlReader.Parse(xaml);
+        }
+
+        private void ApplyLayoutAndVisibility()
+        {
+            if (modulesHostPanel == null) return;
+
+            if (secContainerWeather != null) secContainerWeather.Visibility = showSecWeather ? Visibility.Visible : Visibility.Collapsed;
+            if (secContainerMonitors != null) secContainerMonitors.Visibility = (showSecMonitors && monitorSlots.Count > 0) ? Visibility.Visible : Visibility.Collapsed;
+            if (secContainerWireless != null) secContainerWireless.Visibility = (showSecWireless && lastWirelessCount > 0) ? Visibility.Visible : Visibility.Collapsed;
+            if (secContainerTelemetry != null) secContainerTelemetry.Visibility = showSecTelemetry ? Visibility.Visible : Visibility.Collapsed;
+            if (secContainerClipboard != null) secContainerClipboard.Visibility = showSecClipboard ? Visibility.Visible : Visibility.Collapsed;
+
+            if (rowTeleCpu != null) rowTeleCpu.Visibility = showTeleCpu ? Visibility.Visible : Visibility.Collapsed;
+            if (rowTeleRam != null) rowTeleRam.Visibility = showTeleRam ? Visibility.Visible : Visibility.Collapsed;
+            if (rowTeleGpu != null) rowTeleGpu.Visibility = showTeleGpu ? Visibility.Visible : Visibility.Collapsed;
+            if (rowTeleVram != null) rowTeleVram.Visibility = showTeleVram ? Visibility.Visible : Visibility.Collapsed;
+            if (rowTeleNet != null) rowTeleNet.Visibility = showTeleNet ? Visibility.Visible : Visibility.Collapsed;
+            for (int i = 0; i < rowsTeleDisks.Count; i++)
+            {
+                if (rowsTeleDisks[i] != null)
+                {
+                    rowsTeleDisks[i].Visibility = showTeleDisks ? Visibility.Visible : Visibility.Collapsed;
+                }
+            }
+
+            modulesHostPanel.Children.Clear();
+            bool isFirstVisible = true;
+            foreach (string key in sectionOrder)
+            {
+                StackPanel container = null;
+                if (key == "weather") container = secContainerWeather;
+                else if (key == "monitors") container = secContainerMonitors;
+                else if (key == "wireless") container = secContainerWireless;
+                else if (key == "telemetry") container = secContainerTelemetry;
+                else if (key == "clipboard") container = secContainerClipboard;
+
+                if (container != null)
+                {
+                    if (container.Children.Count > 0 && container.Children[0] is FrameworkElement)
+                    {
+                        FrameworkElement hdr = (FrameworkElement)container.Children[0];
+                        if (container.Visibility == Visibility.Visible)
+                        {
+                            hdr.Margin = isFirstVisible ? new Thickness(0, 2, 0, 6) : new Thickness(0, 12, 0, 6);
+                            isFirstVisible = false;
+                        }
+                    }
+                    modulesHostPanel.Children.Add(container);
+                }
+            }
         }
 
         private Border CreateWeatherMetricBox(string label, string initialValue, out TextBlock labelBlock, out TextBlock valueBlock, Thickness margin)
@@ -3285,6 +3858,10 @@ namespace OpenWidget
                 if (txtHumidityLabel != null) txtHumidityLabel.Text = L("💧 Nem", "💧 Humidity");
                 if (txtWindLabel != null) txtWindLabel.Text = L("💨 Rüzgar", "💨 Wind");
                 if (txtRainLabel != null) txtRainLabel.Text = L("🌧 Yağış", "🌧 Rain");
+                if (txtMonitorSectionTitle != null) txtMonitorSectionTitle.Text = L("Monitör Parlaklığı", "Monitor Brightness");
+                if (btnRefreshMonitors != null) btnRefreshMonitors.ToolTip = L("Monitörleri ve parlaklık seviyelerini yeniden algıla", "Re-detect monitors and brightness levels");
+                UpdateMonitorLinkButtonUi();
+                RebuildMonitorSlidersUi();
                 if (txtWirelessSectionTitle != null) txtWirelessSectionTitle.Text = L("Kablosuz Cihazlar", "Wireless Devices");
                 if (btnRefreshWireless != null) btnRefreshWireless.ToolTip = L("Kablosuz cihaz şarjlarını şimdi yenile", "Refresh wireless device battery levels now");
                 if (txtTelemetrySectionTitle != null) txtTelemetrySectionTitle.Text = L("Telemetri", "Telemetry");
@@ -3302,10 +3879,10 @@ namespace OpenWidget
 
                 if (txtClipboardSectionTitle != null) txtClipboardSectionTitle.Text = L("Pano Geçmişi", "Clipboard History");
                 if (btnClearClip != null) btnClearClip.ToolTip = L("Pano geçmişini temizle", "Clear clipboard history");
-                if (btnSettingsHeader != null) btnSettingsHeader.ToolTip = L("Widget Ayarları (Dil, Konum, Tema Rengi & Opaklık)", "Widget Settings (Language, Location, Theme & Opacity)");
+                if (btnSettingsHeader != null) btnSettingsHeader.ToolTip = L("Widget Ayarları (Dil, Konum, Tema & Düzen)", "Widget Settings (Language, Location, Theme & Layout)");
 
                 if (trayMuteItem != null) trayMuteItem.Text = L("🎙 Mikrofonu Sustur / Aç (Sol Tık)", "🎙 Mute / Unmute Microphone (Left Click)");
-                if (traySettingsItem != null) traySettingsItem.Text = L("⚙ Widget Ayarları (Dil, Konum & Tema)...", "⚙ Widget Settings (Language, Location & Theme)...");
+                if (traySettingsItem != null) traySettingsItem.Text = L("⚙ Widget Ayarları (Dil, Konum, Tema & Düzen)...", "⚙ Widget Settings (Language, Location, Theme & Layout)...");
                 if (trayLockItem != null)
                 {
                     trayLockItem.Text = isDraggable
@@ -3395,6 +3972,35 @@ namespace OpenWidget
             SaveSettings();
         }
 
+        private string GetSectionDisplayName(string key)
+        {
+            if (key == "weather") return L("☀  Hava Durumu", "☀  Weather");
+            if (key == "monitors") return L("🖥  Monitör Parlaklığı", "🖥  Monitor Brightness");
+            if (key == "wireless") return L("🔋  Kablosuz Cihazlar", "🔋  Wireless Devices");
+            if (key == "telemetry") return L("⚙  Telemetri", "⚙  Telemetry");
+            if (key == "clipboard") return L("📋  Pano Geçmişi", "📋  Clipboard History");
+            return key;
+        }
+
+        private bool IsSectionEnabled(string key)
+        {
+            if (key == "weather") return showSecWeather;
+            if (key == "monitors") return showSecMonitors;
+            if (key == "wireless") return showSecWireless;
+            if (key == "telemetry") return showSecTelemetry;
+            if (key == "clipboard") return showSecClipboard;
+            return true;
+        }
+
+        private void SetSectionEnabled(string key, bool val)
+        {
+            if (key == "weather") showSecWeather = val;
+            else if (key == "monitors") showSecMonitors = val;
+            else if (key == "wireless") showSecWireless = val;
+            else if (key == "telemetry") showSecTelemetry = val;
+            else if (key == "clipboard") showSecClipboard = val;
+        }
+
         private void OpenSettingsWindow()
         {
             if (settingsWindow != null && settingsWindow.IsVisible)
@@ -3406,8 +4012,8 @@ namespace OpenWidget
             settingsWindow = new Window
             {
                 Title = L("OpenWidget Ayarları", "OpenWidget Settings"),
-                Width = 390,
-                Height = 605,
+                Width = 400,
+                Height = 640,
                 WindowStartupLocation = WindowStartupLocation.CenterScreen,
                 WindowStyle = WindowStyle.None,
                 AllowsTransparency = true,
@@ -3427,25 +4033,24 @@ namespace OpenWidget
                 Background = HexBrush("#F51E1916"),
                 BorderBrush = HexBrush(accentColorHex),
                 BorderThickness = new Thickness(1.5),
-                Padding = new Thickness(18, 16, 18, 16),
+                Padding = new Thickness(18, 15, 18, 15),
                 Margin = new Thickness(8)
             };
             card.Effect = new DropShadowEffect { Color = Colors.Black, BlurRadius = 14, Opacity = 0.65 };
 
-            card.MouseLeftButtonDown += (s, e) =>
+            StackPanel st = new StackPanel();
+
+            Grid hdr = new Grid { Margin = new Thickness(0, 0, 0, 10), Background = Brushes.Transparent, Cursor = Cursors.SizeAll };
+            hdr.MouseLeftButtonDown += (s, e) =>
             {
                 if (e.ButtonState == MouseButtonState.Pressed)
                 {
                     try { settingsWindow.DragMove(); } catch { }
                 }
             };
-
-            StackPanel st = new StackPanel();
-
-            Grid hdr = new Grid { Margin = new Thickness(0, 0, 0, 12) };
             hdr.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             hdr.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            hdr.Children.Add(new TextBlock { Text = L("⚙ Widget & Konum Ayarları", "⚙ Widget & Location Settings"), Foreground = HexBrush("#FAF6F2"), FontSize = 14, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center });
+            hdr.Children.Add(new TextBlock { Text = L("⚙ OpenWidget Ayarları", "⚙ OpenWidget Settings"), Foreground = HexBrush("#FAF6F2"), FontSize = 14, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center });
 
             Button btnClose = CreateStyledIconButton("#2E2520", "#4A3C34", L("Kapat", "Close"));
             btnClose.Padding = new Thickness(8, 2, 8, 2);
@@ -3455,7 +4060,48 @@ namespace OpenWidget
             hdr.Children.Add(btnClose);
             st.Children.Add(hdr);
 
-            // 0. Language Selector Row (TR / EN)
+            // Top Tab Switcher: [🎨 Görünüm & Konum] [🧩 Düzen & Modüller]
+            UniformGrid tabBar = new UniformGrid { Columns = 2, Margin = new Thickness(0, 0, 0, 12) };
+            Button btnTabGeneral = CreateStyledIconButton("#26201C", "#4A3C34", L("Dil, Konum ve Tema Rengi", "Language, Location & Theme"));
+            btnTabGeneral.Margin = new Thickness(0, 0, 4, 0);
+            btnTabGeneral.Padding = new Thickness(8, 6, 8, 6);
+            TextBlock txtTabGen = new TextBlock { Text = L("🎨 Görünüm & Konum", "🎨 Theme & Location"), FontSize = 11.5, FontWeight = FontWeights.SemiBold };
+            btnTabGeneral.Content = txtTabGen;
+
+            Button btnTabLayout = CreateStyledIconButton("#26201C", "#4A3C34", L("Modülleri Göster/Gizle ve Sürükleyerek Sırala", "Show/Hide Modules & Drag to Reorder"));
+            btnTabLayout.Margin = new Thickness(4, 0, 0, 0);
+            btnTabLayout.Padding = new Thickness(8, 6, 8, 6);
+            TextBlock txtTabLay = new TextBlock { Text = L("🧩 Düzen & Modüller", "🧩 Layout & Modules"), FontSize = 11.5, FontWeight = FontWeights.SemiBold };
+            btnTabLayout.Content = txtTabLay;
+
+            tabBar.Children.Add(btnTabGeneral);
+            tabBar.Children.Add(btnTabLayout);
+            st.Children.Add(tabBar);
+
+            StackPanel tabGeneralPanel = new StackPanel();
+            StackPanel tabLayoutPanel = new StackPanel();
+
+            Action syncTabsUi = () =>
+            {
+                bool isGen = (currentSettingsTab == 0);
+                tabGeneralPanel.Visibility = isGen ? Visibility.Visible : Visibility.Collapsed;
+                tabLayoutPanel.Visibility = isGen ? Visibility.Collapsed : Visibility.Visible;
+
+                btnTabGeneral.Background = HexBrush(isGen ? "#38281E" : "#241E1B");
+                btnTabGeneral.BorderBrush = HexBrush(isGen ? accentColorHex : "#3E322B");
+                txtTabGen.Foreground = HexBrush(isGen ? "#FAF6F2" : "#B8A99E");
+
+                btnTabLayout.Background = HexBrush(!isGen ? "#38281E" : "#241E1B");
+                btnTabLayout.BorderBrush = HexBrush(!isGen ? accentColorHex : "#3E322B");
+                txtTabLay.Foreground = HexBrush(!isGen ? "#FAF6F2" : "#B8A99E");
+            };
+
+            btnTabGeneral.Click += (s, e) => { currentSettingsTab = 0; syncTabsUi(); };
+            btnTabLayout.Click += (s, e) => { currentSettingsTab = 1; syncTabsUi(); };
+
+            // =========================================================
+            // TAB 0: APPEARANCE, LANGUAGE & LOCATION
+            // =========================================================
             Grid langRow = new Grid { Margin = new Thickness(0, 0, 0, 10) };
             langRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             langRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -3497,10 +4143,10 @@ namespace OpenWidget
             };
             Grid.SetColumn(btnSetEn, 2);
             langRow.Children.Add(btnSetEn);
-            st.Children.Add(langRow);
+            tabGeneralPanel.Children.Add(langRow);
 
             // 1. Weather Location Setting
-            st.Children.Add(new TextBlock { Text = L("Hava Durumu Konumu (GPS veya Şehir/İlçe Adı)", "Weather Location (GPS or City/District Name)"), Foreground = HexBrush("#C7B9AE"), FontSize = 11.5, Margin = new Thickness(0, 0, 0, 6) });
+            tabGeneralPanel.Children.Add(new TextBlock { Text = L("Hava Durumu Konumu (GPS veya Şehir/İlçe Adı)", "Weather Location (GPS or City/District Name)"), Foreground = HexBrush("#C7B9AE"), FontSize = 11.5, Margin = new Thickness(0, 0, 0, 6) });
             Grid locRow = new Grid { Margin = new Thickness(0, 0, 0, 6) };
             locRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             locRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -3582,12 +4228,12 @@ namespace OpenWidget
             };
             Grid.SetColumn(btnAutoGps, 2);
             locRow.Children.Add(btnAutoGps);
-            st.Children.Add(locRow);
+            tabGeneralPanel.Children.Add(locRow);
 
-            st.Children.Add(new Border { Height = 1, Background = HexBrush("#362C26"), Margin = new Thickness(0, 6, 0, 10) });
+            tabGeneralPanel.Children.Add(new Border { Height = 1, Background = HexBrush("#362C26"), Margin = new Thickness(0, 6, 0, 10) });
 
             // 2. Theme Accent Color Selection (Interactive Spectrum Picker + Palette Dialog + Swatches)
-            st.Children.Add(new TextBlock { Text = L("Ana Tema Rengi (Renk Seçici / Palet)", "Primary Theme Color (Color Picker / Palette)"), Foreground = HexBrush("#C7B9AE"), FontSize = 11.5, Margin = new Thickness(0, 0, 0, 6) });
+            tabGeneralPanel.Children.Add(new TextBlock { Text = L("Ana Tema Rengi (Renk Seçici / Palet)", "Primary Theme Color (Color Picker / Palette)"), Foreground = HexBrush("#C7B9AE"), FontSize = 11.5, Margin = new Thickness(0, 0, 0, 6) });
 
             Border previewSwatch = new Border
             {
@@ -3613,12 +4259,13 @@ namespace OpenWidget
                 VerticalContentAlignment = VerticalAlignment.Center
             };
 
-            st.Children.Add(CreateInteractiveSpectrumPicker(accentColorHex, (pickedHex) =>
+            tabGeneralPanel.Children.Add(CreateInteractiveSpectrumPicker(accentColorHex, (pickedHex) =>
             {
                 txtHexInput.Text = pickedHex;
                 previewSwatch.Background = HexBrush(pickedHex);
                 ApplyTheme(pickedHex, bgOpacityPercent);
                 card.BorderBrush = HexBrush(pickedHex);
+                syncTabsUi();
             }));
 
             Grid colorCustomRow = new Grid { Margin = new Thickness(0, 0, 0, 10) };
@@ -3647,6 +4294,7 @@ namespace OpenWidget
                     previewSwatch.Background = HexBrush(val);
                     ApplyTheme(val, bgOpacityPercent);
                     card.BorderBrush = HexBrush(val);
+                    syncTabsUi();
                 }
                 catch
                 {
@@ -3675,18 +4323,19 @@ namespace OpenWidget
                         previewSwatch.Background = HexBrush(hex);
                         ApplyTheme(hex, bgOpacityPercent);
                         card.BorderBrush = HexBrush(hex);
+                        syncTabsUi();
                     }
                 }
             };
             Grid.SetColumn(btnWinPalette, 3);
             colorCustomRow.Children.Add(btnWinPalette);
-            st.Children.Add(colorCustomRow);
+            tabGeneralPanel.Children.Add(colorCustomRow);
 
             string[] presets = { "#E2925C", "#D97706", "#C08457", "#E07A5F", "#10B981", "#38BDF8", "#A78BFA", "#F43F5E" };
             string[] presetNames = IsEn
                 ? new string[] { "Default (#E2925C)", "Amber", "Bronze Brown", "Coral", "Emerald", "Sky Blue", "Lavender", "Ruby" }
                 : new string[] { "Varsayılan (#E2925C)", "Kehribar", "Bronz Kahve", "Mercan", "Zümrüt", "Gökyüzü", "Lavanta", "Yakut" };
-            UniformGrid swatchGrid = new UniformGrid { Columns = 8, Margin = new Thickness(0, 0, 0, 14) };
+            UniformGrid swatchGrid = new UniformGrid { Columns = 8, Margin = new Thickness(0, 0, 0, 12) };
             for (int i = 0; i < presets.Length; i++)
             {
                 string hex = presets[i];
@@ -3707,10 +4356,11 @@ namespace OpenWidget
                     previewSwatch.Background = HexBrush(hex);
                     ApplyTheme(hex, bgOpacityPercent);
                     card.BorderBrush = HexBrush(hex);
+                    syncTabsUi();
                 };
                 swatchGrid.Children.Add(sw);
             }
-            st.Children.Add(swatchGrid);
+            tabGeneralPanel.Children.Add(swatchGrid);
 
             // 3. Background Opacity Slider
             Grid opRow = new Grid { Margin = new Thickness(0, 0, 0, 6) };
@@ -3720,7 +4370,7 @@ namespace OpenWidget
             TextBlock txtOpVal = new TextBlock { Text = IsEn ? (bgOpacityPercent + "%") : ("%" + bgOpacityPercent), Foreground = HexBrush("#FAF6F2"), FontSize = 12, FontWeight = FontWeights.Bold };
             Grid.SetColumn(txtOpVal, 1);
             opRow.Children.Add(txtOpVal);
-            st.Children.Add(opRow);
+            tabGeneralPanel.Children.Add(opRow);
 
             Slider slOpacity = CreateModernSlider(accentColorHex, bgOpacityPercent);
             slOpacity.Minimum = 30;
@@ -3732,10 +4382,10 @@ namespace OpenWidget
                 txtOpVal.Text = IsEn ? (v + "%") : ("%" + v);
                 ApplyTheme(accentColorHex, v);
             };
-            st.Children.Add(slOpacity);
+            tabGeneralPanel.Children.Add(slOpacity);
 
             Button btnFit = CreateStyledIconButton("#2A221E", "#4A3C34", L("Widget boyunu içerik kadar küçült/sığdır", "Auto-fit widget height to content"));
-            btnFit.Margin = new Thickness(0, 6, 0, 0);
+            btnFit.Margin = new Thickness(0, 4, 0, 0);
             btnFit.Padding = new Thickness(10, 7, 10, 7);
             btnFit.Content = new TextBlock { Text = L("📐 Widget Yüksekliğini İçeriğe Sığdır (Boşluğu Kaldır)", "📐 Auto-Fit Widget Height to Content"), Foreground = HexBrush("#FAF6F2"), FontSize = 11.5, FontWeight = FontWeights.Medium };
             btnFit.Click += (s, e) =>
@@ -3743,7 +4393,294 @@ namespace OpenWidget
                 FitHeightToContentIfCompact();
                 ShowToast(L("Yükseklik içeriğe göre optimize edildi", "Height optimized to fit content"));
             };
-            st.Children.Add(btnFit);
+            tabGeneralPanel.Children.Add(btnFit);
+
+            // =========================================================
+            // TAB 1: LAYOUT, DRAG-AND-DROP REORDERING & TELEMETRY SUB-TOGGLES
+            // =========================================================
+            tabLayoutPanel.Children.Add(new TextBlock
+            {
+                Text = L("Modül Sıralaması & Görünürlük (Tut-Sürükle veya ▲/▼ ile Sırala)", "Module Order & Visibility (Drag & Drop or ▲/▼ to Reorder)"),
+                Foreground = HexBrush("#C7B9AE"),
+                FontSize = 11.5,
+                Margin = new Thickness(0, 0, 0, 6)
+            });
+
+            StackPanel modulesOrderList = new StackPanel { Margin = new Thickness(0, 0, 0, 10) };
+            int draggingModuleIdx = -1;
+            Action rebuildModulesOrderUi = null;
+
+            rebuildModulesOrderUi = () =>
+            {
+                modulesOrderList.Children.Clear();
+                for (int i = 0; i < sectionOrder.Count; i++)
+                {
+                    int idx = i;
+                    string key = sectionOrder[idx];
+                    bool enabled = IsSectionEnabled(key);
+                    bool isDraggingThis = (draggingModuleIdx == idx);
+
+                    Border rowBorder = new Border
+                    {
+                        CornerRadius = new CornerRadius(8),
+                        Background = HexBrush(isDraggingThis ? "#3A2B21" : (enabled ? "#28201C" : "#1D1815")),
+                        BorderBrush = HexBrush(isDraggingThis ? accentColorHex : (enabled ? "#4A3C34" : "#2E2520")),
+                        BorderThickness = new Thickness(isDraggingThis ? 1.5 : 1),
+                        Padding = new Thickness(10, 6, 8, 6),
+                        Margin = new Thickness(0, 0, 0, 5),
+                        Cursor = Cursors.SizeNS,
+                        ToolTip = L("Sıralamayı değiştirmek için basılı tutup yukarı/aşağı sürükleyin", "Hold and drag up/down to reorder module")
+                    };
+
+                    Grid rg = new Grid();
+                    rg.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                    rg.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                    rg.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                    rg.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                    rg.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                    TextBlock grip = new TextBlock
+                    {
+                        Text = "⠿",
+                        Foreground = HexBrush(isDraggingThis ? accentColorHex : "#8E7F74"),
+                        FontSize = 14,
+                        Margin = new Thickness(0, 0, 8, 0),
+                        VerticalAlignment = VerticalAlignment.Center
+                    };
+                    Grid.SetColumn(grip, 0);
+                    rg.Children.Add(grip);
+
+                    TextBlock title = new TextBlock
+                    {
+                        Text = (idx + 1) + ". " + GetSectionDisplayName(key),
+                        Foreground = HexBrush(enabled ? "#FAF6F2" : "#7E7067"),
+                        FontSize = 12,
+                        FontWeight = FontWeights.SemiBold,
+                        VerticalAlignment = VerticalAlignment.Center
+                    };
+                    Grid.SetColumn(title, 1);
+                    rg.Children.Add(title);
+
+                    Button btnUp = CreateStyledIconButton("#221C18", "#3E322B", L("Yukarı Taşı", "Move Up"));
+                    btnUp.Padding = new Thickness(6, 2, 6, 2);
+                    btnUp.Margin = new Thickness(0, 0, 3, 0);
+                    btnUp.IsEnabled = (idx > 0);
+                    btnUp.Opacity = (idx > 0) ? 1.0 : 0.35;
+                    btnUp.Content = new TextBlock { Text = "▲", Foreground = HexBrush("#C7B9AE"), FontSize = 9.5 };
+                    btnUp.Click += (s, e) =>
+                    {
+                        if (idx > 0)
+                        {
+                            string tmp = sectionOrder[idx - 1];
+                            sectionOrder[idx - 1] = sectionOrder[idx];
+                            sectionOrder[idx] = tmp;
+                            ApplyLayoutAndVisibility();
+                            SaveSettings();
+                            rebuildModulesOrderUi();
+                        }
+                        e.Handled = true;
+                    };
+                    Grid.SetColumn(btnUp, 2);
+                    rg.Children.Add(btnUp);
+
+                    Button btnDown = CreateStyledIconButton("#221C18", "#3E322B", L("Aşağı Taşı", "Move Down"));
+                    btnDown.Padding = new Thickness(6, 2, 6, 2);
+                    btnDown.Margin = new Thickness(0, 0, 6, 0);
+                    btnDown.IsEnabled = (idx < sectionOrder.Count - 1);
+                    btnDown.Opacity = (idx < sectionOrder.Count - 1) ? 1.0 : 0.35;
+                    btnDown.Content = new TextBlock { Text = "▼", Foreground = HexBrush("#C7B9AE"), FontSize = 9.5 };
+                    btnDown.Click += (s, e) =>
+                    {
+                        if (idx < sectionOrder.Count - 1)
+                        {
+                            string tmp = sectionOrder[idx + 1];
+                            sectionOrder[idx + 1] = sectionOrder[idx];
+                            sectionOrder[idx] = tmp;
+                            ApplyLayoutAndVisibility();
+                            SaveSettings();
+                            rebuildModulesOrderUi();
+                        }
+                        e.Handled = true;
+                    };
+                    Grid.SetColumn(btnDown, 3);
+                    rg.Children.Add(btnDown);
+
+                    Button btnToggle = CreateStyledIconButton(
+                        enabled ? "#38281E" : "#221C18",
+                        enabled ? accentColorHex : "#3E322B",
+                        L("Bu modülü göster veya gizle", "Show or hide this module"));
+                    btnToggle.Padding = new Thickness(9, 3, 9, 3);
+                    btnToggle.MinWidth = 60;
+                    btnToggle.Content = new TextBlock
+                    {
+                        Text = enabled ? L("✓ Açık", "✓ On") : L("Kapalı", "Off"),
+                        Foreground = HexBrush(enabled ? "#FAF6F2" : "#8E7F74"),
+                        FontSize = 10.5,
+                        FontWeight = FontWeights.SemiBold
+                    };
+                    btnToggle.Click += (s, e) =>
+                    {
+                        bool nextState = !IsSectionEnabled(key);
+                        SetSectionEnabled(key, nextState);
+                        if (key == "monitors" && nextState && monitorSlots.Count == 0)
+                        {
+                            Task.Run(() => DiscoverAndSyncMonitors(true));
+                        }
+                        ApplyLayoutAndVisibility();
+                        FitHeightToContentIfCompact();
+                        SaveSettings();
+                        rebuildModulesOrderUi();
+                        e.Handled = true;
+                    };
+                    Grid.SetColumn(btnToggle, 4);
+                    rg.Children.Add(btnToggle);
+
+                    rowBorder.Child = rg;
+
+                    rowBorder.MouseLeftButtonDown += (s, e) =>
+                    {
+                        draggingModuleIdx = idx;
+                        modulesOrderList.CaptureMouse();
+                        rebuildModulesOrderUi();
+                        e.Handled = true;
+                    };
+
+                    modulesOrderList.Children.Add(rowBorder);
+                }
+            };
+
+            modulesOrderList.MouseMove += (s, e) =>
+            {
+                if (draggingModuleIdx >= 0 && e.LeftButton == MouseButtonState.Pressed)
+                {
+                    Point pt = e.GetPosition(modulesOrderList);
+                    double rowH = Math.Max(32.0, modulesOrderList.ActualHeight / Math.Max(1, sectionOrder.Count));
+                    int targetIdx = (int)(pt.Y / rowH);
+                    if (targetIdx < 0) targetIdx = 0;
+                    if (targetIdx >= sectionOrder.Count) targetIdx = sectionOrder.Count - 1;
+
+                    if (targetIdx != draggingModuleIdx)
+                    {
+                        string item = sectionOrder[draggingModuleIdx];
+                        sectionOrder.RemoveAt(draggingModuleIdx);
+                        sectionOrder.Insert(targetIdx, item);
+                        draggingModuleIdx = targetIdx;
+                        ApplyLayoutAndVisibility();
+                        SaveSettings();
+                        rebuildModulesOrderUi();
+                    }
+                }
+            };
+
+            modulesOrderList.MouseLeftButtonUp += (s, e) =>
+            {
+                if (draggingModuleIdx >= 0)
+                {
+                    draggingModuleIdx = -1;
+                    if (modulesOrderList.IsMouseCaptured) modulesOrderList.ReleaseMouseCapture();
+                    rebuildModulesOrderUi();
+                }
+            };
+
+            rebuildModulesOrderUi();
+            tabLayoutPanel.Children.Add(modulesOrderList);
+
+            tabLayoutPanel.Children.Add(new Border { Height = 1, Background = HexBrush("#362C26"), Margin = new Thickness(0, 2, 0, 10) });
+
+            // Telemetry Sub-Items Visibility Section
+            tabLayoutPanel.Children.Add(new TextBlock
+            {
+                Text = L("Telemetri İçeriği (Hangi Donanım Verileri Gösterilsin?)", "Telemetry Metrics (Which Hardware Stats to Show?)"),
+                Foreground = HexBrush("#C7B9AE"),
+                FontSize = 11.5,
+                Margin = new Thickness(0, 0, 0, 6)
+            });
+
+            UniformGrid teleSubGrid = new UniformGrid { Columns = 2, Margin = new Thickness(0, 0, 0, 10) };
+            Action rebuildTeleSubGrid = null;
+            rebuildTeleSubGrid = () =>
+            {
+                teleSubGrid.Children.Clear();
+                string[] tKeys = { "cpu", "ram", "gpu", "vram", "net", "disks" };
+                string[] tLabels = {
+                    L("⚙ İşlemci (CPU)", "⚙ Processor (CPU)"),
+                    L("▦ Bellek (RAM)", "▦ Memory (RAM)"),
+                    L("▣ Ekran Kartı (GPU)", "▣ Graphics (GPU)"),
+                    L("▤ Video Belleği (VRAM)", "▤ Video Memory (VRAM)"),
+                    L("⇄ Ağ Trafiği & Ping", "⇄ Network & Ping"),
+                    L("⛁ Diskler (C:, D:...)", "⛁ Drives (C:, D:...)")
+                };
+                bool[] tStates = { showTeleCpu, showTeleRam, showTeleGpu, showTeleVram, showTeleNet, showTeleDisks };
+
+                for (int i = 0; i < tKeys.Length; i++)
+                {
+                    int idx = i;
+                    string tk = tKeys[idx];
+                    bool on = tStates[idx];
+
+                    Button bSub = CreateStyledIconButton(on ? "#38281E" : "#221C18", on ? accentColorHex : "#3A2F29", tLabels[idx]);
+                    bSub.Margin = new Thickness(idx % 2 == 0 ? 0 : 3, 0, idx % 2 == 0 ? 3 : 0, 6);
+                    bSub.Padding = new Thickness(8, 6, 8, 6);
+
+                    Grid bg = new Grid { Width = 158 };
+                    bg.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                    bg.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                    bg.Children.Add(new TextBlock
+                    {
+                        Text = tLabels[idx],
+                        Foreground = HexBrush(on ? "#FAF6F2" : "#8E7F74"),
+                        FontSize = 11,
+                        FontWeight = FontWeights.SemiBold,
+                        VerticalAlignment = VerticalAlignment.Center
+                    });
+
+                    TextBlock stateBadge = new TextBlock
+                    {
+                        Text = on ? "✓" : "✕",
+                        Foreground = HexBrush(on ? accentColorHex : "#6E5E55"),
+                        FontSize = 11,
+                        FontWeight = FontWeights.Bold,
+                        VerticalAlignment = VerticalAlignment.Center
+                    };
+                    Grid.SetColumn(stateBadge, 1);
+                    bg.Children.Add(stateBadge);
+
+                    bSub.Content = bg;
+                    bSub.Click += (s, e) =>
+                    {
+                        if (tk == "cpu") showTeleCpu = !showTeleCpu;
+                        else if (tk == "ram") showTeleRam = !showTeleRam;
+                        else if (tk == "gpu") showTeleGpu = !showTeleGpu;
+                        else if (tk == "vram") showTeleVram = !showTeleVram;
+                        else if (tk == "net") showTeleNet = !showTeleNet;
+                        else if (tk == "disks") showTeleDisks = !showTeleDisks;
+
+                        ApplyLayoutAndVisibility();
+                        FitHeightToContentIfCompact();
+                        SaveSettings();
+                        rebuildTeleSubGrid();
+                    };
+                    teleSubGrid.Children.Add(bSub);
+                }
+            };
+            rebuildTeleSubGrid();
+            tabLayoutPanel.Children.Add(teleSubGrid);
+
+            Button btnFitLayout = CreateStyledIconButton("#2A221E", "#4A3C34", L("Widget boyunu seçili modüllere göre otomatik sığdır", "Auto-fit widget height to active modules"));
+            btnFitLayout.Margin = new Thickness(0, 4, 0, 0);
+            btnFitLayout.Padding = new Thickness(10, 7, 10, 7);
+            btnFitLayout.Content = new TextBlock { Text = L("📐 Widget Yüksekliğini Seçili Modüllere Göre Sığdır", "📐 Auto-Fit Height to Selected Modules"), Foreground = HexBrush("#FAF6F2"), FontSize = 11.5, FontWeight = FontWeights.Medium };
+            btnFitLayout.Click += (s, e) =>
+            {
+                FitHeightToContentIfCompact();
+                ShowToast(L("Yükseklik aktif modüllere göre optimize edildi", "Height optimized for active modules"));
+            };
+            tabLayoutPanel.Children.Add(btnFitLayout);
+
+            syncTabsUi();
+            st.Children.Add(tabGeneralPanel);
+            st.Children.Add(tabLayoutPanel);
 
             card.Child = st;
             settingsWindow.Content = card;
@@ -3959,6 +4896,361 @@ namespace OpenWidget
         }
 
         // ==========================================
+        // MONITOR SDR / DDC BRIGHTNESS ENGINE (ZERO-OVERHEAD)
+        // ==========================================
+        private void UpdateMonitorLinkButtonUi()
+        {
+            if (btnMonitorLink == null) return;
+            btnMonitorLink.Background = HexBrush(monitorLinkSync ? "#3A2B21" : "#221C19");
+            btnMonitorLink.BorderBrush = HexBrush(monitorLinkSync ? accentColorHex : "#3A2E28");
+            btnMonitorLink.ToolTip = monitorLinkSync
+                ? L("Senkronize Mod Açık: Slider tüm monitörleri birlikte değiştirir (Ayırmak için tıkla)", "Sync Mode Active: Slider adjusts all monitors together (Click to separate)")
+                : L("Ayrı Mod: Her monitör bağımsız kontrol edilir (Birleştirmek için tıkla)", "Separate Mode: Each monitor is controlled independently (Click to sync)");
+            btnMonitorLink.Content = new TextBlock
+            {
+                Text = monitorLinkSync ? L("🔗 Birlikte", "🔗 Linked") : L("⛓ Ayrı", "⛓ Separate"),
+                Foreground = HexBrush(monitorLinkSync ? accentColorHex : "#B8A99E"),
+                FontSize = 10,
+                FontWeight = FontWeights.SemiBold
+            };
+        }
+
+        private void AttachMonitorSliderWheel(Slider sl, int monitorIndex)
+        {
+            sl.PreviewMouseWheel += (s, e) =>
+            {
+                int delta = e.Delta > 0 ? 5 : -5;
+                int cur = (monitorIndex >= 0 && monitorIndex < monitorSlots.Count) ? monitorSlots[monitorIndex].CurrentBrightness : (int)Math.Round(sl.Value);
+                int next = Math.Max(0, Math.Min(100, cur + delta));
+                SetMonitorBrightnessFromUi(monitorIndex, next, monitorLinkSync);
+                e.Handled = true;
+            };
+        }
+
+        private void OnMonitorSliderValueChanged(int monitorIndex, double newValue)
+        {
+            if (isUpdatingMonitorUi) return;
+            int target = Math.Max(0, Math.Min(100, (int)Math.Round(newValue)));
+            SetMonitorBrightnessFromUi(monitorIndex, target, monitorLinkSync);
+        }
+
+        private void SetMonitorBrightnessFromUi(int sourceIndex, int targetPct, bool syncAll)
+        {
+            targetPct = Math.Max(0, Math.Min(100, targetPct));
+            isUpdatingMonitorUi = true;
+            try
+            {
+                if (syncAll)
+                {
+                    for (int i = 0; i < monitorSlots.Count; i++)
+                    {
+                        monitorSlots[i].CurrentBrightness = targetPct;
+                        if (i < txtMonitorPercents.Count) txtMonitorPercents[i].Text = IsEn ? (targetPct + "%") : ("%" + targetPct);
+                        if (i < sliderMonitors.Count && Math.Abs(sliderMonitors[i].Value - targetPct) >= 0.5)
+                        {
+                            sliderMonitors[i].Value = targetPct;
+                        }
+                        QueueMonitorBrightness(i, targetPct);
+                    }
+                }
+                else
+                {
+                    if (sourceIndex >= 0 && sourceIndex < monitorSlots.Count)
+                    {
+                        monitorSlots[sourceIndex].CurrentBrightness = targetPct;
+                        if (sourceIndex < txtMonitorPercents.Count) txtMonitorPercents[sourceIndex].Text = IsEn ? (targetPct + "%") : ("%" + targetPct);
+                        if (sourceIndex < sliderMonitors.Count && Math.Abs(sliderMonitors[sourceIndex].Value - targetPct) >= 0.5)
+                        {
+                            sliderMonitors[sourceIndex].Value = targetPct;
+                        }
+                        QueueMonitorBrightness(sourceIndex, targetPct);
+                    }
+                }
+            }
+            finally
+            {
+                isUpdatingMonitorUi = false;
+            }
+        }
+
+        private void QueueMonitorBrightness(int index, int pct)
+        {
+            if (index < 0 || index >= monitorSlots.Count) return;
+            PhysicalMonitorSlot slot = monitorSlots[index];
+            Interlocked.Exchange(ref slot.PendingBrightness, pct);
+
+            if (Interlocked.CompareExchange(ref slot.WorkerBusy, 1, 0) == 0)
+            {
+                ThreadPool.QueueUserWorkItem(_ => RunMonitorDdcWorker(slot));
+            }
+        }
+
+        private void RunMonitorDdcWorker(PhysicalMonitorSlot slot)
+        {
+            try
+            {
+                while (true)
+                {
+                    int target = Interlocked.Exchange(ref slot.PendingBrightness, -1);
+                    if (target < 0) break;
+
+                    if (slot.UseWindowsSdrWhiteLevel && slot.TargetId != 0)
+                    {
+                        MonitorDdcNative.SetSdrWhiteLevelPercent(slot.AdapterId, slot.TargetId, target);
+                        Thread.Sleep(8);
+                    }
+                    else
+                    {
+                        uint span = (slot.MaxVal > slot.MinVal) ? (slot.MaxVal - slot.MinVal) : 100u;
+                        uint rawVal = slot.MinVal + (uint)Math.Round((target / 100.0) * span);
+
+                        lock (monitorHandleLock)
+                        {
+                            if (slot.Handle != IntPtr.Zero)
+                            {
+                                MonitorDdcNative.SetVCPFeature(slot.Handle, MonitorDdcNative.VCP_BRIGHTNESS, rawVal);
+                            }
+                        }
+                        Thread.Sleep(28);
+                    }
+                }
+            }
+            catch { }
+            finally
+            {
+                Interlocked.Exchange(ref slot.WorkerBusy, 0);
+                if (Interlocked.CompareExchange(ref slot.PendingBrightness, -1, -1) >= 0)
+                {
+                    if (Interlocked.CompareExchange(ref slot.WorkerBusy, 1, 0) == 0)
+                    {
+                        ThreadPool.QueueUserWorkItem(_ => RunMonitorDdcWorker(slot));
+                    }
+                }
+            }
+        }
+
+        private string FormatFriendlyMonitorName(string rawName, int idx)
+        {
+            if (string.IsNullOrWhiteSpace(rawName)) return L("Monitör ", "Monitor ") + (idx + 1);
+            string n = rawName.Trim();
+            if (n.IndexOf("Generic PnP", StringComparison.OrdinalIgnoreCase) >= 0)
+                return L("Monitör ", "Monitor ") + (idx + 1);
+            return n;
+        }
+
+        private void DiscoverAndSyncMonitors(bool isInitial)
+        {
+            try
+            {
+                List<MonitorDdcNative.WinDisplayTargetInfo> winTargets = MonitorDdcNative.QueryActiveDisplayTargets();
+                List<IntPtr> hMonitors = new List<IntPtr>();
+                MonitorDdcNative.EnumDisplayMonitors(IntPtr.Zero, IntPtr.Zero, (IntPtr hMon, IntPtr hdc, ref MonitorDdcNative.RECT r, IntPtr d) =>
+                {
+                    hMonitors.Add(hMon);
+                    return true;
+                }, IntPtr.Zero);
+
+                List<PhysicalMonitorSlot> discovered = new List<PhysicalMonitorSlot>();
+
+                for (int m = 0; m < hMonitors.Count; m++)
+                {
+                    string gdiDevName = null;
+                    MonitorDdcNative.MONITORINFOEX mi = new MonitorDdcNative.MONITORINFOEX();
+                    mi.cbSize = Marshal.SizeOf(typeof(MonitorDdcNative.MONITORINFOEX));
+                    if (MonitorDdcNative.GetMonitorInfo(hMonitors[m], ref mi))
+                    {
+                        gdiDevName = mi.szDevice;
+                    }
+
+                    MonitorDdcNative.WinDisplayTargetInfo matchedTarget = null;
+                    if (!string.IsNullOrEmpty(gdiDevName))
+                    {
+                        for (int t = 0; t < winTargets.Count; t++)
+                        {
+                            if (string.Equals(winTargets[t].GdiDeviceName, gdiDevName, StringComparison.OrdinalIgnoreCase))
+                            {
+                                matchedTarget = winTargets[t];
+                                break;
+                            }
+                        }
+                    }
+                    if (matchedTarget == null && m < winTargets.Count)
+                    {
+                        matchedTarget = winTargets[m];
+                    }
+
+                    uint count = 0;
+                    if (!MonitorDdcNative.GetNumberOfPhysicalMonitorsFromHMONITOR(hMonitors[m], out count) || count == 0)
+                        continue;
+
+                    MonitorDdcNative.PHYSICAL_MONITOR[] phys = new MonitorDdcNative.PHYSICAL_MONITOR[count];
+                    if (!MonitorDdcNative.GetPhysicalMonitorsFromHMONITOR(hMonitors[m], count, phys))
+                        continue;
+
+                    for (int i = 0; i < count; i++)
+                    {
+                        IntPtr hPhys = phys[i].hPhysicalMonitor;
+                        string rawDesc = phys[i].szPhysicalMonitorDescription;
+                        if (matchedTarget != null && !string.IsNullOrWhiteSpace(matchedTarget.FriendlyName))
+                        {
+                            rawDesc = matchedTarget.FriendlyName;
+                        }
+
+                        uint pdwType, curVal = 50, maxVal = 100;
+                        bool ddcOk = MonitorDdcNative.GetVCPFeatureAndVCPFeatureReply(hPhys, MonitorDdcNative.VCP_BRIGHTNESS, out pdwType, out curVal, out maxVal);
+
+                        bool useSdr = false;
+                        int pct = 60;
+                        if (matchedTarget != null && matchedTarget.HdrEnabled)
+                        {
+                            useSdr = true;
+                            pct = matchedTarget.SdrBrightnessPct;
+                        }
+                        else if (ddcOk && maxVal > 0)
+                        {
+                            pct = (int)Math.Round((curVal / (double)maxVal) * 100.0);
+                            pct = Math.Max(0, Math.Min(100, pct));
+                        }
+                        else if (matchedTarget != null)
+                        {
+                            useSdr = true;
+                            pct = matchedTarget.SdrBrightnessPct;
+                        }
+
+                        PhysicalMonitorSlot slot = new PhysicalMonitorSlot
+                        {
+                            Handle = hPhys,
+                            Name = FormatFriendlyMonitorName(rawDesc, discovered.Count),
+                            MinVal = 0,
+                            MaxVal = (ddcOk && maxVal > 0) ? maxVal : 100u,
+                            CurrentBrightness = pct,
+                            PendingBrightness = -1,
+                            WorkerBusy = 0,
+                            UseWindowsSdrWhiteLevel = useSdr,
+                            AdapterId = matchedTarget != null ? matchedTarget.AdapterId : default(MonitorDdcNative.LUID),
+                            TargetId = matchedTarget != null ? matchedTarget.TargetId : 0u
+                        };
+                        discovered.Add(slot);
+                    }
+                }
+
+                if (discovered.Count > 0)
+                {
+                    lock (monitorHandleLock)
+                    {
+                        CleanupMonitorHandles();
+                        monitorSlots.Clear();
+                        monitorSlots.AddRange(discovered);
+                    }
+
+                    Dispatcher.Invoke(() =>
+                    {
+                        RebuildMonitorSlidersUi();
+                        ApplyLayoutAndVisibility();
+                        if (isWindowInitialized) FitHeightToContentIfCompact();
+                    });
+                }
+                else
+                {
+                    Dispatcher.Invoke(() =>
+                    {
+                        ApplyLayoutAndVisibility();
+                    });
+                }
+            }
+            catch { }
+        }
+
+        private void RebuildMonitorSlidersUi()
+        {
+            if (monRowsHostStack == null) return;
+            isUpdatingMonitorUi = true;
+            try
+            {
+                monRowsHostStack.Children.Clear();
+                txtMonitorNames.Clear();
+                txtMonitorPercents.Clear();
+                sliderMonitors.Clear();
+                monitorSliderContainers.Clear();
+
+                for (int i = 0; i < monitorSlots.Count; i++)
+                {
+                    int idx = i;
+                    PhysicalMonitorSlot slot = monitorSlots[i];
+
+                    Grid row = new Grid { Margin = new Thickness(0, i == 0 ? 0 : 5, 0, 2) };
+                    row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(118) });
+                    row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                    row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(38) });
+
+                    StackPanel nameStack = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+                    nameStack.Children.Add(new TextBlock { Text = "🖥", Foreground = HexBrush("#B8A99E"), FontSize = 11, Margin = new Thickness(0, 0, 5, 0), VerticalAlignment = VerticalAlignment.Center });
+                    TextBlock tName = new TextBlock
+                    {
+                        Text = slot.Name + (slot.UseWindowsSdrWhiteLevel ? " (SDR)" : ""),
+                        Foreground = HexBrush("#F5EFEA"),
+                        FontSize = 11.5,
+                        FontWeight = FontWeights.SemiBold,
+                        VerticalAlignment = VerticalAlignment.Center,
+                        TextTrimming = TextTrimming.CharacterEllipsis,
+                        ToolTip = slot.UseWindowsSdrWhiteLevel
+                            ? (slot.Name + L(" • HDR Açık: Windows SDR İçerik Parlaklığı (Gecikmesiz)", " • HDR Active: Windows SDR Content Brightness (Instant)"))
+                            : (slot.Name + L(" • Donanımsal DDC/CI Parlaklık", " • Hardware DDC/CI Brightness"))
+                    };
+                    nameStack.Children.Add(tName);
+                    txtMonitorNames.Add(tName);
+                    Grid.SetColumn(nameStack, 0);
+                    row.Children.Add(nameStack);
+
+                    Border sHost = new Border { VerticalAlignment = VerticalAlignment.Center };
+                    Slider sl = CreateModernSlider(accentColorHex, slot.CurrentBrightness, 0, "6,0,8,0");
+                    sl.ValueChanged += (s, e) => OnMonitorSliderValueChanged(idx, e.NewValue);
+                    AttachMonitorSliderWheel(sl, idx);
+                    sHost.Child = sl;
+                    monitorSliderContainers.Add(sHost);
+                    sliderMonitors.Add(sl);
+                    Grid.SetColumn(sHost, 1);
+                    row.Children.Add(sHost);
+
+                    TextBlock tPct = new TextBlock
+                    {
+                        Text = IsEn ? (slot.CurrentBrightness + "%") : ("%" + slot.CurrentBrightness),
+                        Foreground = HexBrush(accentColorHex),
+                        FontSize = 12,
+                        FontWeight = FontWeights.Bold,
+                        HorizontalAlignment = HorizontalAlignment.Right,
+                        VerticalAlignment = VerticalAlignment.Center
+                    };
+                    accentTextBlocks.Add(tPct);
+                    txtMonitorPercents.Add(tPct);
+                    Grid.SetColumn(tPct, 2);
+                    row.Children.Add(tPct);
+
+                    monRowsHostStack.Children.Add(row);
+                }
+            }
+            finally
+            {
+                isUpdatingMonitorUi = false;
+            }
+        }
+
+        private void CleanupMonitorHandles()
+        {
+            lock (monitorHandleLock)
+            {
+                foreach (var slot in monitorSlots)
+                {
+                    if (slot.Handle != IntPtr.Zero)
+                    {
+                        try { MonitorDdcNative.DestroyPhysicalMonitor(slot.Handle); } catch { }
+                        slot.Handle = IntPtr.Zero;
+                    }
+                }
+            }
+        }
+
+        // ==========================================
         // ULTRA-LIGHT TIMERS, NVML GPU & TELEMETRY
         // ==========================================
         private void InitializeTimers()
@@ -3971,6 +5263,7 @@ namespace OpenWidget
                     cpuCounter.NextValue();
                 }
                 catch { }
+                DiscoverAndSyncMonitors(true);
                 FetchWeatherAsync();
                 UpdatePingAsync();
                 PollWirelessDevicesAsync();
@@ -4284,11 +5577,10 @@ namespace OpenWidget
                         ui.Fill.Width = dev.BarPct > 0 ? Math.Max(3, (42.0 * dev.BarPct) / 100.0) : 0;
                     }
 
-                    Visibility targetVis = activeList.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-                    if (wirelessHeaderGrid.Visibility != targetVis)
+                    Visibility targetVis = (showSecWireless && activeList.Count > 0) ? Visibility.Visible : Visibility.Collapsed;
+                    if (secContainerWireless != null && secContainerWireless.Visibility != targetVis)
                     {
-                        wirelessHeaderGrid.Visibility = targetVis;
-                        panelWirelessContent.Visibility = targetVis;
+                        ApplyLayoutAndVisibility();
                         countChanged = true;
                     }
 
