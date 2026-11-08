@@ -3029,8 +3029,7 @@ namespace OpenWidget
             {
                 Margin = new Thickness(0, 12, 0, 4),
                 Cursor = Cursors.Hand,
-                Tag = "Interactive",
-                Visibility = Visibility.Collapsed
+                Tag = "Interactive"
             };
             wirelessHeaderGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             wirelessHeaderGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -3060,7 +3059,7 @@ namespace OpenWidget
             Grid.SetColumn(wirelessChevron, 2);
             wirelessHeaderGrid.Children.Add(wirelessChevron);
 
-            panelWirelessContent = new StackPanel { Visibility = Visibility.Collapsed };
+            panelWirelessContent = new StackPanel();
             wirelessHeaderGrid.MouseLeftButtonDown += (s, e) =>
             {
                 if (panelWirelessContent.Visibility == Visibility.Visible)
