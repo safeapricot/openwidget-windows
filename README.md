@@ -60,8 +60,7 @@
 
 ### Quick Start (Installation)
 1. Download **`OpenWidget-Public-Release.zip`** (or clone this repository).
-2. Double-click **`OpenWidget.exe`** (or run `Kurulum_Yardimcisi.bat` to re-open the Setup Wizard anytime).
-3. Pick your language, weather location mode (GPS or Manual City), and theme color, then click **Complete Setup & Launch OpenWidget**.
+2. Pick your language, weather location mode (GPS or Manual City), and theme color, then click **Complete Setup & Launch OpenWidget**.
 
 ### Building from Source (No Visual Studio Required)
 OpenWidget compiles out-of-the-box using the native .NET Framework 64-bit compiler built into every Windows 10/11 machine:
@@ -73,14 +72,14 @@ OpenWidget compiles out-of-the-box using the native .NET Framework 64-bit compil
 
 ## Genel Bakış
 
-**OpenWidget**, Windows 10 ve 11 için C# / WPF ve doğrudan Win32, DisplayConfig SDR/DDC, USB HID, CoreAudio COM ve NVIDIA NVML C-API çağrılarıyla sıfırdan geliştirilmiş, tek dosyalık (`OpenWidget.exe` — gömülü çoklu-çözünürlüklü ikonlarıyla birlikte **230 KB**), ultra hafif bir masaüstü widget uygulamasıdır.
+**OpenWidget**, gemini kankimle yaptığım ultra hafif bir masaüstü widget uygulamasıdır.
 
 ### Öne Çıkan Özellikler
 - **Etkileşimli Kurulum Yardımcısı:**
   - İlk açılışta otomatik olarak karşınıza çıkar:
   - **Hava Durumu Konumu:** İster **Otomatik Algıla (GPS / Konum Servisi)** seçin, ister **Sabit İl / İlçe** (Örn: `İstanbul / Kadıköy`, `Ankara`, `Kütahya / Merkez`) yazın.
-  - **Tema ve Kısayollar:** Başlangıç tema renginizi seçin, Masaüstü kısayolu ve Windows başlangıcında otomatik açılma ayarlarını tek tıkla tamamlayın.
-- **Otomatik Monitör Parlaklığı Kontrolü (HDR SDR İçerik Parlaklığı & DDC/CI):**
+  - **Tema ve Kısayollar:** Başlangıç tema renginizi seçin, Masaüstü kısayolu ve Windows başlangıcında otomatik açılma ayarlarını tek tıkla tamamlayın (bence windows başlayınca aç yapın her bilgisayar açılınca açmak çok zahmetli).
+- **Monitör Parlaklığı Kontrolü:**
   - Bağlı monitörlerinizi ve gerçek model isimlerini otomatik algılayarak her monitör için parlaklık slider'ı (`%0–%100`), fare tekerleği ile `±%5` hassas kontrol, **`Birlikte / Ayrı`** senkronizasyon modu ve hızlı mod butonları (`%15`, `%40`, `%75`, `%100`) ekler.
   - **HDR Kilit Çözümü:** HDR açıkken donanımsal parlaklığı kilitleyen monitörlerde Windows'un yerel **SDR İçerik Parlaklığı (`DisplayConfigSetDeviceInfo`)** motorunu, standart SDR ekranlarda ise doğrudan **DDC/CI (`dxva2.dll`)** protokolünü sıfır gecikmeyle kullanır.
 - **Özelleştirilebilir Widget Düzeni & Sürükle-Bırak Sıralama (`Düzen & Modüller`):**
@@ -90,7 +89,7 @@ OpenWidget compiles out-of-the-box using the native .NET Framework 64-bit compil
 - **Canlı Hava Durumu & 3 Günlük Tahmin:** Anlık sıcaklık, hissedilen sıcaklık, nem, rüzgar, yağış ve 3 günlük tahmin.
 - **Otomatik Kablosuz Cihaz (Fare, Klavye, Kulaklık, Kumanda) Şarj & Hz Takibi:**
   - Bilgisayarınıza bağlı kablosuz **Fare**, **Klavye**, **Kulaklık** ve **Oyun Kumandalarını** türünü ve gerçek cihaz ismini algılayarak otomatik listeler.
-  - **Bluetooth / BLE Cihazlar (`DEVPKEY_Device_BatteryLife`)**, **XInput / DirectInput Kablosuz Kumandalar**, **CompX 4K/8K Kablosuz Oyuncu Fareleri** (Scyrox, VXE, ATK vb. — gerçek donanım **Polling Rate `125 Hz – 8000 Hz`**, voltaj ve şarj durumu dahil) ve **HyperX Kablosuz Kulaklıkları** doğrudan Windows çekirdeğinden (`hid.dll` & `xinput1_4.dll`) okur; hiçbir üretici yazılımı gerektirmez.
+  - **Bluetooth Cihazlar (`DEVPKEY_Device_BatteryLife`)**, **XInput / DirectInput Kablosuz Kumandalar**, **Kablosuz Oyuncu Fareleri** (Scyrox, VXE, ATK vb. — gerçek donanım **Polling Rate `125 Hz – 8000 Hz`**, voltaj ve şarj durumu dahil) doğrudan Windows çekirdeğinden okur; hiçbir üretici yazılımı gerektirmez.
   - Kapalı olan cihazları otomatik gizler; aktif kablosuz cihaz yoksa bölüm tamamen gizlenerek sıfır kalabalık yaratır.
 - **Her Bilgisayara Uyumlu Canlı Donanım Telemetrisi:**
   - Bilgisayarınızdaki **İşlemci (CPU)** adını, **Ekran Kartı (GPU)** modelini (`nvml.dll` doğrudan C-API), **RAM / VRAM** kullanımını, **Ağ Trafiği & Ping** değerlerini ve takılı olan sabit **Disklerinizi (`C:`, `D:` vb.)** otomatik algılar.
@@ -101,12 +100,11 @@ OpenWidget compiles out-of-the-box using the native .NET Framework 64-bit compil
 - **Canlı Spektrum Renk Seçici & Saydamlık Ayarı:**
   - Ayarlar menüsünden 2 boyutlu renk spektrumu üzerinden istediğiniz rengi sürükleyerek seçebilir, `#HEX` kodu girebilir ve arka plan saydamlığını (`%30–%100`) değiştirebilirsiniz.
 - **`Win + D` (Masaüstünü Göster) Koruması:**
-  - `Win + D` tuşlarına bastığınızda masaüstünden kaybolmaz; son bıraktığınız konumu ve boyutu otomatik hatırlar.
+  - Masaüstünü göster'e bastığınızda gitmez. Ana sayfadaki herhangi bir widget gibi.
 
 ### Kurulum ve Kullanım
 1. **`OpenWidget-Public-Release.zip`** dosyasını indirin ve bir klasöre çıkartın.
-2. **`OpenWidget.exe`** dosyasına çift tıklayın (Kurulum ekranını istediğiniz zaman tekrar açmak için `Kurulum_Yardimcisi.bat` dosyasına çift tıklayabilirsiniz).
-3. Konum tercihinizi ve tema renginizi seçip başlatın.
+2. Konum tercihinizi ve tema renginizi seçip başlatın.
 
 ---
 
