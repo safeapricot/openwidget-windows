@@ -17,7 +17,7 @@
 ## Live Preview
 
 <p align="center">
-  <img src="preview.jpg" alt="OpenWidget Windows Desktop Preview" width="760" />
+  <img src="preview.png" alt="OpenWidget Windows Desktop Preview" width="1100" />
 </p>
 
 ---
