@@ -1977,7 +1977,12 @@ namespace OpenWidget
         private Button btnMicHeader;
         private TextBlock txtMicHeaderIcon;
 
-        // Weather UI
+        // Weather UI & Unit State
+        private bool useFahrenheit = false;
+        private double lastWeatherTempC = 14;
+        private double lastWeatherFeelsC = 13;
+        private double[] lastWeatherMinC = new double[] { 8, 6, 8 };
+        private double[] lastWeatherMaxC = new double[] { 16, 14, 16 };
         private TextBlock txtWeatherSectionTitle;
         private TextBlock txtLocationBadge;
         private TextBlock txtWeatherTemp;
@@ -2184,6 +2189,8 @@ namespace OpenWidget
                             string v = line.Substring(idx + 1).Trim();
                             if (k == "Language" && (v.Equals("EN", StringComparison.OrdinalIgnoreCase) || v.Equals("TR", StringComparison.OrdinalIgnoreCase)))
                                 appLanguage = v.ToUpperInvariant();
+                            else if (k == "TempUnit")
+                                useFahrenheit = (v.Equals("F", StringComparison.OrdinalIgnoreCase) || v.Equals("Fahrenheit", StringComparison.OrdinalIgnoreCase));
                             else if (k == "Accent" && v.StartsWith("#") && (v.Length == 7 || v.Length == 9))
                                 accentColorHex = v;
                             else if (k == "Opacity")
@@ -2283,6 +2290,7 @@ namespace OpenWidget
             {
                 StringBuilder sb = new StringBuilder();
                 sb.AppendLine("Language=" + appLanguage);
+                sb.AppendLine("TempUnit=" + (useFahrenheit ? "F" : "C"));
                 sb.AppendLine("Accent=" + accentColorHex);
                 sb.AppendLine("Opacity=" + bgOpacityPercent);
                 sb.AppendLine("LocationMode=" + locationMode);
@@ -2934,6 +2942,7 @@ namespace OpenWidget
             weatherStack.Children.Add(forecastGrid);
             weatherCard.Child = weatherStack;
             secContainerWeather.Children.Add(weatherCard);
+            RefreshWeatherTemperatureUi();
 
             // 2B. MONITOR BRIGHTNESS SECTION (Auto-Detects Monitors, HDR SDRWhiteLevel + DDC/CI)
             secContainerMonitors = new StackPanel { Visibility = Visibility.Collapsed };
@@ -4143,6 +4152,60 @@ namespace OpenWidget
             Grid.SetColumn(btnSetEn, 2);
             langRow.Children.Add(btnSetEn);
             tabGeneralPanel.Children.Add(langRow);
+
+            // Temperature Unit Row (°C Celsius vs °F Fahrenheit)
+            Grid tempUnitRow = new Grid { Margin = new Thickness(0, 0, 0, 10) };
+            tempUnitRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            tempUnitRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            tempUnitRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            tempUnitRow.Children.Add(new TextBlock { Text = L("🌡 Sıcaklık Birimi (Hava Durumu)", "🌡 Temperature Unit (Weather)"), Foreground = HexBrush("#C7B9AE"), FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center });
+
+            Button btnSetCelsius = CreateStyledIconButton(!useFahrenheit ? "#38281E" : "#26201C", !useFahrenheit ? accentColorHex : "#4A3C34", "Celsius (°C)");
+            btnSetCelsius.Margin = new Thickness(0, 0, 6, 0);
+            btnSetCelsius.Padding = new Thickness(10, 4, 10, 4);
+            btnSetCelsius.Content = new TextBlock { Text = "°C Celsius", Foreground = HexBrush("#FAF6F2"), FontSize = 11, FontWeight = FontWeights.SemiBold };
+
+            Button btnSetFahrenheit = CreateStyledIconButton(useFahrenheit ? "#38281E" : "#26201C", useFahrenheit ? accentColorHex : "#4A3C34", "Fahrenheit (°F)");
+            btnSetFahrenheit.Padding = new Thickness(10, 4, 10, 4);
+            btnSetFahrenheit.Content = new TextBlock { Text = "°F Fahrenheit", Foreground = HexBrush("#FAF6F2"), FontSize = 11, FontWeight = FontWeights.SemiBold };
+
+            Action syncTempUnitButtons = () =>
+            {
+                btnSetCelsius.Background = HexBrush(!useFahrenheit ? "#38281E" : "#26201C");
+                btnSetCelsius.BorderBrush = HexBrush(!useFahrenheit ? accentColorHex : "#4A3C34");
+                btnSetFahrenheit.Background = HexBrush(useFahrenheit ? "#38281E" : "#26201C");
+                btnSetFahrenheit.BorderBrush = HexBrush(useFahrenheit ? accentColorHex : "#4A3C34");
+            };
+
+            btnSetCelsius.Click += (s, e) =>
+            {
+                if (useFahrenheit)
+                {
+                    useFahrenheit = false;
+                    syncTempUnitButtons();
+                    SaveSettings();
+                    RefreshWeatherTemperatureUi();
+                    ShowToast(L("Sıcaklık birimi: °C (Celsius)", "Temperature unit: °C (Celsius)"));
+                }
+            };
+            Grid.SetColumn(btnSetCelsius, 1);
+            tempUnitRow.Children.Add(btnSetCelsius);
+
+            btnSetFahrenheit.Click += (s, e) =>
+            {
+                if (!useFahrenheit)
+                {
+                    useFahrenheit = true;
+                    syncTempUnitButtons();
+                    SaveSettings();
+                    RefreshWeatherTemperatureUi();
+                    ShowToast(L("Sıcaklık birimi: °F (Fahrenheit)", "Temperature unit: °F (Fahrenheit)"));
+                }
+            };
+            Grid.SetColumn(btnSetFahrenheit, 2);
+            tempUnitRow.Children.Add(btnSetFahrenheit);
+            tabGeneralPanel.Children.Add(tempUnitRow);
 
             // 1. Weather Location Setting
             tabGeneralPanel.Children.Add(new TextBlock { Text = L("Hava Durumu Konumu (GPS veya Şehir/İlçe Adı)", "Weather Location (GPS or City/District Name)"), Foreground = HexBrush("#C7B9AE"), FontSize = 11.5, Margin = new Thickness(0, 0, 0, 6) });
@@ -5599,6 +5662,35 @@ namespace OpenWidget
         // ==========================================
         // WEATHER FETCHER (DYNAMIC USER LOCATION)
         // ==========================================
+        private double ToDisplayTemp(double tempC)
+        {
+            return useFahrenheit ? Math.Round((tempC * 9.0 / 5.0) + 32.0) : Math.Round(tempC);
+        }
+
+        private void RefreshWeatherTemperatureUi()
+        {
+            try
+            {
+                string unitSuffix = useFahrenheit ? "°F" : "°C";
+                if (txtWeatherTemp != null)
+                    txtWeatherTemp.Text = string.Format("{0:0}°", ToDisplayTemp(lastWeatherTempC));
+                if (txtWeatherFeels != null)
+                {
+                    txtWeatherFeels.Text = IsEn
+                        ? string.Format("Feels like {0:0}{1}", ToDisplayTemp(lastWeatherFeelsC), unitSuffix)
+                        : string.Format("Hissedilen {0:0}{1}", ToDisplayTemp(lastWeatherFeelsC), unitSuffix);
+                }
+                for (int i = 0; i < 3; i++)
+                {
+                    if (txtDayTemps[i] != null && lastWeatherMinC != null && lastWeatherMaxC != null && lastWeatherMinC.Length > i && lastWeatherMaxC.Length > i)
+                    {
+                        txtDayTemps[i].Text = string.Format("{0:0}° / {1:0}°", ToDisplayTemp(lastWeatherMinC[i]), ToDisplayTemp(lastWeatherMaxC[i]));
+                    }
+                }
+            }
+            catch { }
+        }
+
         private void FetchWeatherAsync()
         {
             try
@@ -5631,13 +5723,15 @@ namespace OpenWidget
                     double[] maxTemps = ExtractJsonArrayDoubles(json, "temperature_2m_max");
                     double[] dayCodes = ExtractJsonArrayDoubles(json, "weather_code");
 
+                    lastWeatherTempC = temp;
+                    lastWeatherFeelsC = feels;
+                    if (minTemps.Length >= 3) lastWeatherMinC = minTemps;
+                    if (maxTemps.Length >= 3) lastWeatherMaxC = maxTemps;
+
                     Dispatcher.Invoke(() =>
                     {
                         txtLocationBadge.Text = locationName;
-                        txtWeatherTemp.Text = Math.Round(temp) + "°";
-                        txtWeatherFeels.Text = IsEn
-                            ? string.Format("Feels like {0:0}°C", feels)
-                            : string.Format("Hissedilen {0:0}°C", feels);
+                        RefreshWeatherTemperatureUi();
                         txtWeatherDesc.Text = WeatherCodeToText(wCode);
                         txtWeatherMainIcon.Text = WeatherCodeToIcon(wCode);
                         txtWeatherHumidity.Text = IsEn ? (Math.Round(hum) + "%") : ("%" + Math.Round(hum));
@@ -5652,10 +5746,6 @@ namespace OpenWidget
                             txtDayNames[i].Text = i == 0
                                 ? L("Bugün", "Today")
                                 : (i == 1 ? L("Yarın", "Tomorrow") : gunIsimleri[(int)DateTime.Now.AddDays(i).DayOfWeek]);
-                            if (minTemps.Length > i && maxTemps.Length > i)
-                            {
-                                txtDayTemps[i].Text = string.Format("{0:0}° / {1:0}°", minTemps[i], maxTemps[i]);
-                            }
                             if (dayCodes.Length > i)
                             {
                                 txtDayIcons[i].Text = WeatherCodeToIcon((int)dayCodes[i]);

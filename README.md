@@ -10,7 +10,7 @@
 
 ## One-Click Download
 
-[![Download OpenWidget ZIP](https://img.shields.io/badge/DOWNLOAD%20ZIP-OpenWidget%20v2.0.0-E2925C?style=for-the-badge&logo=windows)](https://github.com/safeapricot/openwidget-windows/releases/download/v2/OpenWidget-v2.0.0.zip)
+[![Download OpenWidget ZIP](https://img.shields.io/badge/DOWNLOAD%20ZIP-OpenWidget%20v2.1.0-E2925C?style=for-the-badge&logo=windows)](https://github.com/safeapricot/openwidget-windows/releases/download/v2.1.0/OpenWidget-v2.1.0.zip)
 
 > **Quick Setup:** Click the orange button above to immediately download the `.zip` package, extract it to a folder, and run **`OpenWidget.exe`**.
 
@@ -38,7 +38,7 @@
   - Open **Settings -> Layout & Modules** to individually toggle **Weather**, **Monitor Brightness**, **Wireless Devices**, **Telemetry**, and **Clipboard History** on or off.
   - **Drag & Drop Reordering:** Hold and drag any module row (or use the up/down buttons) to customize the exact vertical order of sections on your widget.
   - **Granular Telemetry Toggles:** Individually show or hide **CPU**, **RAM**, **GPU**, **VRAM**, **Network & Ping**, and **Drives** inside the Telemetry card.
-- **Live Weather & 3-Day Forecast:** Current temperature, feels-like, humidity, wind speed, precipitation, and 3-day min/max forecast powered by Open-Meteo (no API key required).
+- **Live Weather & 3-Day Forecast (°C / °F):** Current temperature, feels-like, humidity, wind speed, precipitation, and 3-day min/max forecast powered by Open-Meteo (no API key required), with instant **Celsius (`°C`) / Fahrenheit (`°F`)** switching in Settings.
 - **Auto-Detected Wireless Peripherals Battery & Polling Rate Telemetry:**
   - Automatically detects connected wireless **Mice**, **Keyboards**, **Headsets**, and **Controllers/Gamepads** along with their real product names.
   - Supports **Windows Native Bluetooth / BLE Battery Service (`DEVPKEY_Device_BatteryLife`)**, **XInput / DirectInput Wireless Gamepads**, **CompX 4K/8K Wireless Gaming Mice** (Scyrox, VXE, ATK, etc. — including real hardware **Polling Rate `125 Hz – 8000 Hz`** and battery voltage), and **HyperX Wireless Headsets** directly via non-blocking Overlapped USB HID I/O — zero manufacturer bloatware needed.
@@ -86,7 +86,7 @@ OpenWidget compiles out-of-the-box using the native .NET Framework 64-bit compil
   - **Ayarlar -> Düzen & Modüller** sekmesinden **Hava Durumu**, **Monitör Parlaklığı**, **Kablosuz Cihazlar**, **Telemetri** ve **Pano Geçmişi** bölümlerinden hangilerinin gösterileceğini tek tıkla seçebilirsiniz.
   - **Tut-Bırak (Drag & Drop) Sıralama:** Modülleri basılı tutup yukarı/aşağı sürükleyerek (veya yukarı/aşağı butonlarıyla) widget üzerindeki sıralamasını istediğiniz gibi değiştirebilirsiniz.
   - **Detaylı Telemetri Seçimi:** Telemetri kartı içindeki **İşlemci (CPU)**, **Bellek (RAM)**, **Ekran Kartı (GPU)**, **Video Belleği (VRAM)**, **Ağ Trafiği** ve **Diskler** satırlarını ayrı ayrı açıp kapatabilirsiniz.
-- **Canlı Hava Durumu & 3 Günlük Tahmin:** Anlık sıcaklık, hissedilen sıcaklık, nem, rüzgar, yağış ve 3 günlük tahmin.
+- **Canlı Hava Durumu & 3 Günlük Tahmin (°C / °F):** Anlık sıcaklık, hissedilen sıcaklık, nem, rüzgar, yağış ve 3 günlük tahmin (Ayarlar'dan **Celsius `°C` / Fahrenheit `°F`** seçimi ile).
 - **Otomatik Kablosuz Cihaz (Fare, Klavye, Kulaklık, Kumanda) Şarj & Hz Takibi:**
   - Bilgisayarınıza bağlı kablosuz **Fare**, **Klavye**, **Kulaklık** ve **Oyun Kumandalarını** türünü ve gerçek cihaz ismini algılayarak otomatik listeler.
   - **Bluetooth Cihazlar (`DEVPKEY_Device_BatteryLife`)**, **XInput / DirectInput Kablosuz Kumandalar**, **Kablosuz Oyuncu Fareleri** (Scyrox, VXE, ATK vb. — gerçek donanım **Polling Rate `125 Hz – 8000 Hz`**, voltaj ve şarj durumu dahil) doğrudan Windows çekirdeğinden okur; hiçbir üretici yazılımı gerektirmez.
