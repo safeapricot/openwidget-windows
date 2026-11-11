@@ -1252,10 +1252,7 @@ namespace OpenWidget
 
                 Dispatcher.BeginInvoke(new Action(() =>
                 {
-                    if (!hasSavedDimensions)
-                    {
-                        FitHeightToContentIfCompact();
-                    }
+                    FitHeightToContentIfCompact();
                     isWindowInitialized = true;
                     InitializeCalendarWidget();
                     SaveSettings();
@@ -5877,8 +5874,8 @@ namespace OpenWidget
             Grid.SetRow(weekDayHdr, 1);
             leftPane.Children.Add(weekDayHdr);
 
-            // 6x7 Mini Month Day Cells
-            calMiniMonthGrid = new UniformGrid { Columns = 7, Rows = 6 };
+            // 6x7 Mini Month Day Cells (compact fixed height so left calendar stays proportional when window auto-expands)
+            calMiniMonthGrid = new UniformGrid { Columns = 7, Rows = 6, Height = 156, VerticalAlignment = VerticalAlignment.Top };
             Grid.SetRow(calMiniMonthGrid, 2);
             leftPane.Children.Add(calMiniMonthGrid);
 
@@ -5929,6 +5926,7 @@ namespace OpenWidget
             btnQuickAdd.Click += (s, e) =>
             {
                 calQuickAddPanel.Visibility = (calQuickAddPanel.Visibility == Visibility.Visible) ? Visibility.Collapsed : Visibility.Visible;
+                FitCalendarHeightToContent();
             };
             rightBtns.Children.Add(btnQuickAdd);
 
@@ -6315,6 +6313,31 @@ namespace OpenWidget
                             break;
                         }
                     }
+                }
+
+                FitCalendarHeightToContent();
+            }
+            catch { }
+        }
+
+        private void FitCalendarHeightToContent()
+        {
+            if (calendarWindow == null || calEventsListPanel == null) return;
+            try
+            {
+                double winW = calendarWindow.ActualWidth > 300 ? calendarWindow.ActualWidth : savedCalWidth;
+                double rightWidth = Math.Max(210, winW - 234);
+                calEventsListPanel.Measure(new Size(rightWidth, double.PositiveInfinity));
+                double eventsH = calEventsListPanel.DesiredSize.Height;
+                double quickAddH = (calQuickAddPanel != null && calQuickAddPanel.Visibility == Visibility.Visible) ? 38 : 0;
+                double neededRightH = eventsH + quickAddH + 68;
+                double minLeftH = 246;
+                var workArea = SystemParameters.WorkArea;
+                double targetH = Math.Min(workArea.Height - 40, Math.Max(minLeftH, Math.Ceiling(neededRightH)));
+                if (Math.Abs(calendarWindow.Height - targetH) > 1.0)
+                {
+                    calendarWindow.Height = targetH;
+                    savedCalHeight = targetH;
                 }
             }
             catch { }
