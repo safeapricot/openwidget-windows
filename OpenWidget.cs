@@ -855,7 +855,7 @@ namespace OpenWidget
         private TextBlock txtCalDayOfWeekHeader;
         private TextBlock txtCalBigDayNum;
         private TextBlock txtCalMonthYearLabel;
-        private UniformGrid calMiniMonthGrid;
+        private StackPanel calMiniMonthGrid;
         private TextBlock txtCalRightScheduleTitle;
         private StackPanel calEventsListPanel;
         private Border calQuickAddPanel;
@@ -5664,6 +5664,10 @@ namespace OpenWidget
 
             calendarWindow.SizeChanged += (s, e) =>
             {
+                if (e.HeightChanged && calendarWindow.ActualHeight >= 210)
+                {
+                    RebuildCalendarLeftColumn(calendarWindow.ActualHeight);
+                }
                 if (calendarWindow.ActualWidth >= 380 && calendarWindow.ActualHeight >= 210)
                 {
                     savedCalWidth = calendarWindow.ActualWidth;
@@ -5732,7 +5736,7 @@ namespace OpenWidget
             calUiTimer.Tick += (s, e) =>
             {
                 calTick++;
-                if (showCalendarWidget) RefreshCalendarWidgetUi();
+                if (showCalendarWidget) RefreshCalendarWidgetUi(false);
                 if (calTick % 7 == 0)
                 {
                     Task.Run(() => LoadAndSyncCalendarEventsAsync(false));
@@ -5874,8 +5878,13 @@ namespace OpenWidget
             Grid.SetRow(weekDayHdr, 1);
             leftPane.Children.Add(weekDayHdr);
 
-            // Dynamic Multi-Month / Vertically Stretched Host (fills 100% of left column height with 1 or more months)
-            calMiniMonthGrid = new UniformGrid { Columns = 1, Rows = 1, VerticalAlignment = VerticalAlignment.Stretch };
+            // Dynamic Multi-Month / Progressive Week Host (never stretches row gaps; adds subsequent weeks/months to fill height)
+            calMiniMonthGrid = new StackPanel
+            {
+                Orientation = Orientation.Vertical,
+                VerticalAlignment = VerticalAlignment.Top,
+                ClipToBounds = true
+            };
             Grid.SetRow(calMiniMonthGrid, 2);
             leftPane.Children.Add(calMiniMonthGrid);
 
@@ -6119,7 +6128,7 @@ namespace OpenWidget
             catch { }
         }
 
-        private void RefreshCalendarWidgetUi()
+        private void RefreshCalendarWidgetUi(bool autoShrinkHeight = true)
         {
             if (calendarWindow == null || calMiniMonthGrid == null || calEventsListPanel == null) return;
             try
@@ -6224,150 +6233,195 @@ namespace OpenWidget
                 }
 
                 // Auto-fit window height to the events on the right so no scrollbar is needed
-                FitCalendarHeightToContent();
+                FitCalendarHeightToContent(autoShrinkHeight);
 
-                // 2. Rebuild Left Pane Mini Month Grid(s) to stretch & fill 100% of the vertical height (adding next months if tall enough!)
-                double effectiveH = calendarWindow.Height > 200 ? calendarWindow.Height : savedCalHeight;
-                int monthsToFit = Math.Max(1, Math.Min(3, (int)((effectiveH - 45.0) / 185.0)));
+                // 2. Rebuild Left Pane Mini Month Stack to fill vertical height with fixed-row-height weeks/months (no ugly row stretching)
+                double effectiveH = (!double.IsNaN(calendarWindow.Height) && calendarWindow.Height > 200)
+                    ? calendarWindow.Height
+                    : (calendarWindow.ActualHeight > 200 ? calendarWindow.ActualHeight : savedCalHeight);
+                RebuildCalendarLeftColumn(effectiveH);
+            }
+            catch { }
+        }
+
+        private void RebuildCalendarLeftColumn(double windowHeight)
+        {
+            if (calMiniMonthGrid == null) return;
+            try
+            {
+                string[] trMonthNamesUpper = { "", "OCAK", "ŞUBAT", "MART", "NİSAN", "MAYIS", "HAZİRAN", "TEMMUZ", "AĞUSTOS", "EYLÜL", "EKİM", "KASIM", "ARALIK" };
+                DateTime today = DateTime.Today;
+
+                List<CalendarEventItem> snapshot;
+                lock (calEventsLock)
+                {
+                    snapshot = new List<CalendarEventItem>(allCalendarEvents);
+                }
 
                 calMiniMonthGrid.Children.Clear();
-                calMiniMonthGrid.Rows = monthsToFit;
 
-                for (int m = 0; m < monthsToFit; m++)
+                // Available height in left column below the weekday header
+                double availLeftH = Math.Max(138.0, windowHeight - 90.0);
+                double usedH = 0.0;
+                const double rowH = 22.0;
+                const double subHdrH = 22.0;
+
+                for (int m = 0; m < 12; m++)
                 {
                     DateTime monthDate = new DateTime(calDisplayedMonth.Year, calDisplayedMonth.Month, 1).AddMonths(m);
                     int firstDayOffset = ((int)monthDate.DayOfWeek + 6) % 7; // Monday = 0, Sunday = 6
+                    int daysInMonth = DateTime.DaysInMonth(monthDate.Year, monthDate.Month);
+                    int weekRows = (int)Math.Ceiling((firstDayOffset + daysInMonth) / 7.0);
                     DateTime gridStart = monthDate.AddDays(-firstDayOffset);
-
-                    Grid singleMonthContainer = new Grid
-                    {
-                        VerticalAlignment = VerticalAlignment.Stretch,
-                        Margin = new Thickness(0, m == 0 ? 0 : 6, 0, 0)
-                    };
-                    singleMonthContainer.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-                    singleMonthContainer.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
                     if (m > 0)
                     {
+                        // Need room for at least the month header + 1 week row
+                        if (usedH + subHdrH + rowH > availLeftH)
+                            break;
+
                         Border subMonthHdr = new Border
                         {
+                            Height = subHdrH,
                             BorderBrush = HexBrush("#362C26"),
                             BorderThickness = new Thickness(0, 1, 0, 0),
-                            Padding = new Thickness(2, 4, 2, 3)
+                            Margin = new Thickness(0, 3, 0, 1),
+                            Padding = new Thickness(2, 3, 2, 1)
                         };
                         subMonthHdr.Child = new TextBlock
                         {
                             Text = trMonthNamesUpper[monthDate.Month] + " " + monthDate.Year,
                             Foreground = HexBrush(accentColorHex),
                             FontSize = 9.5,
-                            FontWeight = FontWeights.Bold
-                        };
-                        Grid.SetRow(subMonthHdr, 0);
-                        singleMonthContainer.Children.Add(subMonthHdr);
-                    }
-
-                    UniformGrid daysGrid = new UniformGrid
-                    {
-                        Columns = 7,
-                        Rows = 6,
-                        VerticalAlignment = VerticalAlignment.Stretch
-                    };
-
-                    for (int cell = 0; cell < 42; cell++)
-                    {
-                        DateTime cellDate = gridStart.AddDays(cell).Date;
-                        bool isCurrentMonth = (cellDate.Month == monthDate.Month);
-                        bool isToday = (cellDate == today);
-                        bool isSelected = (cellDate == calSelectedDate.Date);
-
-                        bool hasPrimaryEvent = false;
-                        bool hasHolidayEvent = false;
-                        for (int k = 0; k < snapshot.Count; k++)
-                        {
-                            CalendarEventItem ev = snapshot[k];
-                            if (DoesEventOccurOnDate(ev, cellDate))
-                            {
-                                if (ev.Source == "holiday") hasHolidayEvent = true;
-                                else hasPrimaryEvent = true;
-                            }
-                        }
-
-                        Border dayCell = new Border
-                        {
-                            Width = 22,
-                            Height = 22,
-                            CornerRadius = new CornerRadius(11),
-                            Background = isToday
-                                ? HexBrush(accentColorHex)
-                                : (isSelected ? HexBrush("#38281E") : Brushes.Transparent),
-                            BorderBrush = (!isToday && isSelected) ? HexBrush(accentColorHex) : Brushes.Transparent,
-                            BorderThickness = new Thickness(!isToday && isSelected ? 1.2 : 0),
-                            Cursor = Cursors.Hand,
-                            Tag = "Interactive",
-                            HorizontalAlignment = HorizontalAlignment.Center,
+                            FontWeight = FontWeights.Bold,
                             VerticalAlignment = VerticalAlignment.Center
                         };
-
-                        StackPanel cellStack = new StackPanel
-                        {
-                            VerticalAlignment = VerticalAlignment.Center,
-                            HorizontalAlignment = HorizontalAlignment.Center
-                        };
-
-                        TextBlock txtNum = new TextBlock
-                        {
-                            Text = cellDate.Day.ToString(),
-                            FontSize = 9.5,
-                            FontWeight = (isToday || isSelected) ? FontWeights.Bold : FontWeights.Medium,
-                            Foreground = isToday
-                                ? Brushes.White
-                                : (isCurrentMonth ? HexBrush("#FAF6F2") : HexBrush("#5E5047")),
-                            HorizontalAlignment = HorizontalAlignment.Center,
-                            Margin = new Thickness(0, -1, 0, 0)
-                        };
-                        cellStack.Children.Add(txtNum);
-
-                        if (hasPrimaryEvent || hasHolidayEvent)
-                        {
-                            Border dot = new Border
-                            {
-                                Width = 3.5,
-                                Height = 3.5,
-                                CornerRadius = new CornerRadius(2),
-                                Background = isToday
-                                    ? Brushes.White
-                                    : HexBrush(hasPrimaryEvent ? accentColorHex : "#9A9CFF"),
-                                HorizontalAlignment = HorizontalAlignment.Center,
-                                Margin = new Thickness(0, 0.5, 0, 0)
-                            };
-                            cellStack.Children.Add(dot);
-                        }
-
-                        dayCell.Child = cellStack;
-                        DateTime capturedDate = cellDate;
-                        dayCell.MouseLeftButtonDown += (s, e) =>
-                        {
-                            calSelectedDate = capturedDate;
-                            if (capturedDate.Month != calDisplayedMonth.Month || capturedDate.Year != calDisplayedMonth.Year)
-                            {
-                                calDisplayedMonth = new DateTime(capturedDate.Year, capturedDate.Month, 1);
-                            }
-                            RefreshCalendarWidgetUi();
-                            e.Handled = true;
-                        };
-
-                        daysGrid.Children.Add(dayCell);
+                        calMiniMonthGrid.Children.Add(subMonthHdr);
+                        usedH += subHdrH + 4.0;
                     }
 
-                    Grid.SetRow(daysGrid, 1);
-                    singleMonthContainer.Children.Add(daysGrid);
-                    calMiniMonthGrid.Children.Add(singleMonthContainer);
+                    bool willFitNextMonth = (usedH + (weekRows * rowH) + subHdrH + rowH) <= availLeftH;
+
+                    for (int w = 0; w < weekRows; w++)
+                    {
+                        if (m > 0 && usedH + rowH > availLeftH)
+                            break;
+
+                        UniformGrid weekRowGrid = new UniformGrid
+                        {
+                            Columns = 7,
+                            Rows = 1,
+                            Height = rowH,
+                            VerticalAlignment = VerticalAlignment.Top
+                        };
+
+                        for (int d = 0; d < 7; d++)
+                        {
+                            int cell = w * 7 + d;
+                            DateTime cellDate = gridStart.AddDays(cell).Date;
+                            bool isCurrentMonth = (cellDate.Month == monthDate.Month);
+
+                            // Avoid duplicating boundary days when subsequent months are stacked below
+                            if (!isCurrentMonth && (m > 0 || (willFitNextMonth && cellDate > monthDate)))
+                            {
+                                weekRowGrid.Children.Add(new Border { Width = 21, Height = 21 });
+                                continue;
+                            }
+
+                            bool isToday = (cellDate == today);
+                            bool isSelected = (cellDate == calSelectedDate.Date);
+
+                            bool hasPrimaryEvent = false;
+                            bool hasHolidayEvent = false;
+                            for (int k = 0; k < snapshot.Count; k++)
+                            {
+                                CalendarEventItem ev = snapshot[k];
+                                if (DoesEventOccurOnDate(ev, cellDate))
+                                {
+                                    if (ev.Source == "holiday") hasHolidayEvent = true;
+                                    else hasPrimaryEvent = true;
+                                }
+                            }
+
+                            Border dayCell = new Border
+                            {
+                                Width = 21,
+                                Height = 21,
+                                CornerRadius = new CornerRadius(10.5),
+                                Background = isToday
+                                    ? HexBrush(accentColorHex)
+                                    : (isSelected ? HexBrush("#38281E") : Brushes.Transparent),
+                                BorderBrush = (!isToday && isSelected) ? HexBrush(accentColorHex) : Brushes.Transparent,
+                                BorderThickness = new Thickness(!isToday && isSelected ? 1.2 : 0),
+                                Cursor = Cursors.Hand,
+                                Tag = "Interactive",
+                                HorizontalAlignment = HorizontalAlignment.Center,
+                                VerticalAlignment = VerticalAlignment.Center
+                            };
+
+                            StackPanel cellStack = new StackPanel
+                            {
+                                VerticalAlignment = VerticalAlignment.Center,
+                                HorizontalAlignment = HorizontalAlignment.Center
+                            };
+
+                            TextBlock txtNum = new TextBlock
+                            {
+                                Text = cellDate.Day.ToString(),
+                                FontSize = 9.5,
+                                FontWeight = (isToday || isSelected) ? FontWeights.Bold : FontWeights.Medium,
+                                Foreground = isToday
+                                    ? Brushes.White
+                                    : (isCurrentMonth ? HexBrush("#FAF6F2") : HexBrush("#5E5047")),
+                                HorizontalAlignment = HorizontalAlignment.Center,
+                                Margin = new Thickness(0, -1, 0, 0)
+                            };
+                            cellStack.Children.Add(txtNum);
+
+                            if (hasPrimaryEvent || hasHolidayEvent)
+                            {
+                                Border dot = new Border
+                                {
+                                    Width = 3.5,
+                                    Height = 3.5,
+                                    CornerRadius = new CornerRadius(2),
+                                    Background = isToday
+                                        ? Brushes.White
+                                        : HexBrush(hasPrimaryEvent ? accentColorHex : "#9A9CFF"),
+                                    HorizontalAlignment = HorizontalAlignment.Center,
+                                    Margin = new Thickness(0, 0.5, 0, 0)
+                                };
+                                cellStack.Children.Add(dot);
+                            }
+
+                            dayCell.Child = cellStack;
+                            DateTime capturedDate = cellDate;
+                            dayCell.MouseLeftButtonDown += (s, e) =>
+                            {
+                                calSelectedDate = capturedDate;
+                                if (capturedDate.Month != calDisplayedMonth.Month || capturedDate.Year != calDisplayedMonth.Year)
+                                {
+                                    calDisplayedMonth = new DateTime(capturedDate.Year, capturedDate.Month, 1);
+                                }
+                                RefreshCalendarWidgetUi();
+                                e.Handled = true;
+                            };
+
+                            weekRowGrid.Children.Add(dayCell);
+                        }
+
+                        calMiniMonthGrid.Children.Add(weekRowGrid);
+                        usedH += rowH;
+                    }
+
+                    if (usedH + subHdrH + rowH > availLeftH)
+                        break;
                 }
             }
             catch { }
         }
 
-        private void FitCalendarHeightToContent()
+        private void FitCalendarHeightToContent(bool allowShrink = true)
         {
             if (calendarWindow == null || calEventsListPanel == null) return;
             try
@@ -6381,7 +6435,7 @@ namespace OpenWidget
                 double minLeftH = 246;
                 var workArea = SystemParameters.WorkArea;
                 double targetH = Math.Min(workArea.Height - 40, Math.Max(minLeftH, Math.Ceiling(neededRightH)));
-                if (Math.Abs(calendarWindow.Height - targetH) > 1.0)
+                if ((allowShrink && Math.Abs(calendarWindow.Height - targetH) > 1.0) || (!allowShrink && calendarWindow.Height < targetH - 1.0))
                 {
                     calendarWindow.Height = targetH;
                     savedCalHeight = targetH;
