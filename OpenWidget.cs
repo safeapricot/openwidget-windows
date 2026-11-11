@@ -651,6 +651,11 @@ namespace OpenWidget
 
         private bool userHidden = false;
         private bool isShowDesktopActive = false;
+        private IntPtr cachedMainHwnd = IntPtr.Zero;
+        private IntPtr cachedCalHwnd = IntPtr.Zero;
+        private IntPtr lastVerifiedFgHwnd = IntPtr.Zero;
+        private readonly StringBuilder fgClassBuilder = new StringBuilder(64);
+        private DispatcherTimer saveSettingsDebounceTimer;
 
         // Theme & Settings State
         private string settingsFilePath;
@@ -661,7 +666,6 @@ namespace OpenWidget
         private double savedFreeHeight = 760;
         private double savedLeft = double.NaN;
         private double savedTop = double.NaN;
-        private bool hasSavedDimensions = false;
         private bool isWindowInitialized = false;
 
         // WiZ Smart Bulb State (Reusable Single UdpClient)
@@ -698,6 +702,8 @@ namespace OpenWidget
 
         private List<double> cpuHistory = new List<double>(20);
         private List<double> gpuHistory = new List<double>(20);
+        private NetworkInterface[] cachedActiveNics = null;
+        private int telemetryTickCounter = 0;
         private long lastBytesRecv = 0;
         private long lastBytesSent = 0;
         private DateTime lastNetTime = DateTime.Now;
@@ -865,6 +871,12 @@ namespace OpenWidget
         private DateTime calDisplayedMonth = new DateTime(DateTime.Now.Year, DateTime.Now.Month, 1);
         private DateTime calSelectedDate = DateTime.Today;
         private readonly List<CalendarEventItem> allCalendarEvents = new List<CalendarEventItem>();
+        private Dictionary<DateTime, byte> calEventDotsByDate = new Dictionary<DateTime, byte>();
+        private int calEventsVersion = 0;
+        private string lastLeftColumnSignature = "";
+        private string lastRightScheduleSignature = "";
+        private DateTime lastCalDatWriteUtc = DateTime.MinValue;
+        private DateTime lastCustomDatWriteUtc = DateTime.MinValue;
         private readonly object calEventsLock = new object();
         private System.Windows.Forms.ToolStripMenuItem trayCalendarItem;
 
@@ -961,7 +973,6 @@ namespace OpenWidget
                                 if (double.TryParse(v, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out fw))
                                 {
                                     savedFreeWidth = Math.Max(330, Math.Min(700, fw));
-                                    hasSavedDimensions = true;
                                 }
                             }
                             else if (k == "FreeHeight")
@@ -970,7 +981,6 @@ namespace OpenWidget
                                 if (double.TryParse(v, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out fh))
                                 {
                                     savedFreeHeight = Math.Max(420, Math.Min(1400, fh));
-                                    hasSavedDimensions = true;
                                 }
                             }
                             else if (k == "Left")
@@ -1091,6 +1101,22 @@ namespace OpenWidget
             catch { }
         }
 
+        private void SaveSettingsDebounced()
+        {
+            if (!isWindowInitialized) return;
+            if (saveSettingsDebounceTimer == null)
+            {
+                saveSettingsDebounceTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(450) };
+                saveSettingsDebounceTimer.Tick += (s, e) =>
+                {
+                    saveSettingsDebounceTimer.Stop();
+                    SaveSettings();
+                };
+            }
+            saveSettingsDebounceTimer.Stop();
+            saveSettingsDebounceTimer.Start();
+        }
+
         private bool IsAutoStartEnabled()
         {
             try
@@ -1200,7 +1226,7 @@ namespace OpenWidget
                 {
                     savedFreeWidth = this.ActualWidth;
                     savedFreeHeight = this.ActualHeight;
-                    if (isWindowInitialized) SaveSettings();
+                    SaveSettingsDebounced();
                 }
             };
 
@@ -1210,7 +1236,7 @@ namespace OpenWidget
                 {
                     savedLeft = this.Left;
                     savedTop = this.Top;
-                    SaveSettings();
+                    SaveSettingsDebounced();
                 }
             };
 
@@ -1222,12 +1248,12 @@ namespace OpenWidget
 
                 try
                 {
-                    IntPtr hwnd = new WindowInteropHelper(this).Handle;
+                    IntPtr hwnd = cachedMainHwnd != IntPtr.Zero ? cachedMainHwnd : new WindowInteropHelper(this).Handle;
                     ReleaseCapture();
                     SendMessage(hwnd, WM_NCLBUTTONDOWN, (IntPtr)HT_CAPTION, IntPtr.Zero);
                     savedLeft = this.Left;
                     savedTop = this.Top;
-                    SaveSettings();
+                    SaveSettingsDebounced();
                     e.Handled = true;
                 }
                 catch { }
@@ -1236,6 +1262,7 @@ namespace OpenWidget
             this.Loaded += (s, e) =>
             {
                 IntPtr hwnd = new WindowInteropHelper(this).Handle;
+                cachedMainHwnd = hwnd;
                 int exStyle = GetWindowLong(hwnd, GWL_EXSTYLE);
                 SetWindowLong(hwnd, GWL_EXSTYLE, exStyle | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE);
 
@@ -1344,20 +1371,27 @@ namespace OpenWidget
             if (userHidden) return;
             try
             {
-                IntPtr hwnd = new WindowInteropHelper(this).Handle;
+                IntPtr hwnd = cachedMainHwnd != IntPtr.Zero ? cachedMainHwnd : (cachedMainHwnd = new WindowInteropHelper(this).Handle);
                 if (hwnd == IntPtr.Zero) return;
 
-                IntPtr calHwnd = (calendarWindow != null && showCalendarWidget) ? new WindowInteropHelper(calendarWindow).Handle : IntPtr.Zero;
+                IntPtr calHwnd = (calendarWindow != null && showCalendarWidget)
+                    ? (cachedCalHwnd != IntPtr.Zero ? cachedCalHwnd : (cachedCalHwnd = new WindowInteropHelper(calendarWindow).Handle))
+                    : IntPtr.Zero;
 
                 IntPtr fg = GetForegroundWindow();
                 if (fg != IntPtr.Zero)
                 {
-                    StringBuilder sb = new StringBuilder(64);
-                    GetClassName(fg, sb, 64);
-                    string cls = sb.ToString();
+                    // Fast path: if foreground window hasn't changed and we're already in normal desktop-bottom state, skip Win32 class/z-order queries
+                    if (fg == lastVerifiedFgHwnd && !isShowDesktopActive)
+                        return;
+
+                    fgClassBuilder.Length = 0;
+                    GetClassName(fg, fgClassBuilder, 64);
+                    string cls = fgClassBuilder.ToString();
                     // When user presses Win+D, WorkerW or Progman becomes the foreground window
                     if (cls == "WorkerW" || cls == "Progman")
                     {
+                        lastVerifiedFgHwnd = IntPtr.Zero;
                         if (!isShowDesktopActive)
                         {
                             isShowDesktopActive = true;
@@ -1379,6 +1413,7 @@ namespace OpenWidget
                             if (IsWindowAbove(hwnd, fg)) SendWidgetToDesktopBottom(hwnd);
                             if (calHwnd != IntPtr.Zero && IsWindowAbove(calHwnd, fg)) SendWidgetToDesktopBottom(calHwnd);
                         }
+                        lastVerifiedFgHwnd = fg;
                     }
                 }
             }
@@ -4914,85 +4949,119 @@ namespace OpenWidget
 
         private void UpdateTelemetryFast()
         {
+            if (!showSecTelemetry) return;
+            telemetryTickCounter++;
+
             // Direct C-API GPU poll (takes ~10 microseconds, zero process creation!)
-            PollGpuDirectNvml();
+            if (showTeleGpu || showTeleVram || showTeleCpu)
+            {
+                PollGpuDirectNvml();
+            }
 
             // CPU Load & Temperature
-            double cpuVal = 8;
-            try
+            if (showTeleCpu)
             {
-                if (cpuCounter != null) cpuVal = Math.Round(cpuCounter.NextValue());
-            }
-            catch { }
-            cpuVal = Math.Max(1, Math.Min(100, cpuVal));
-            cpuHistory.Add(cpuVal);
-            if (cpuHistory.Count > 20) cpuHistory.RemoveAt(0);
+                double cpuVal = 8;
+                try
+                {
+                    if (cpuCounter != null) cpuVal = Math.Round(cpuCounter.NextValue());
+                }
+                catch { }
+                cpuVal = Math.Max(1, Math.Min(100, cpuVal));
+                cpuHistory.Add(cpuVal);
+                if (cpuHistory.Count > 20) cpuHistory.RemoveAt(0);
 
-            double cTemp = ReadCpuTemperature(cpuVal);
-            txtCpuDetail.Text = string.Format("Ryzen 5 7500F • {0:0}°C", cTemp);
-            txtCpuPct.Text = "%" + (int)cpuVal;
-            DrawSparkline(sparkCpu, cpuHistory, 46, 16);
+                double cTemp = ReadCpuTemperature(cpuVal);
+                txtCpuDetail.Text = string.Format("Ryzen 5 7500F • {0:0}°C", cTemp);
+                txtCpuPct.Text = "%" + (int)cpuVal;
+                DrawSparkline(sparkCpu, cpuHistory, 46, 16);
+            }
 
             // RAM (Reuses single sharedMemStatus buffer)
-            try
+            if (showTeleRam)
             {
-                if (GlobalMemoryStatusEx(sharedMemStatus))
+                try
                 {
-                    double totalGb = sharedMemStatus.ullTotalPhys / (1024.0 * 1024.0 * 1024.0);
-                    double usedGb = (sharedMemStatus.ullTotalPhys - sharedMemStatus.ullAvailPhys) / (1024.0 * 1024.0 * 1024.0);
-                    int pct = (int)sharedMemStatus.dwMemoryLoad;
-                    txtRamDetail.Text = string.Format("{0:0.0} / {1:0} GB", usedGb, Math.Round(totalGb));
-                    txtRamPct.Text = "%" + pct;
-                    barRamFill.Width = Math.Max(3, (42.0 * pct) / 100.0);
+                    if (GlobalMemoryStatusEx(sharedMemStatus))
+                    {
+                        double totalGb = sharedMemStatus.ullTotalPhys / (1024.0 * 1024.0 * 1024.0);
+                        double usedGb = (sharedMemStatus.ullTotalPhys - sharedMemStatus.ullAvailPhys) / (1024.0 * 1024.0 * 1024.0);
+                        int pct = (int)sharedMemStatus.dwMemoryLoad;
+                        txtRamDetail.Text = string.Format("{0:0.0} / {1:0} GB", usedGb, Math.Round(totalGb));
+                        txtRamPct.Text = "%" + pct;
+                        barRamFill.Width = Math.Max(3, (42.0 * pct) / 100.0);
+                    }
                 }
+                catch { }
             }
-            catch { }
 
             // GPU & VRAM UI
-            txtGpuDetail.Text = string.Format("{0} • {1:0}°C", gpuModelName, gpuTemp);
-            txtGpuPct.Text = "%" + (int)gpuLoad;
-            DrawSparkline(sparkGpu, gpuHistory, 46, 16);
-
-            int vramPct = vramTotalGb > 0 ? (int)Math.Round((vramUsedGb / vramTotalGb) * 100.0) : 0;
-            txtVramDetail.Text = string.Format("{0:0.0} / {1:0} GB", vramUsedGb, vramTotalGb);
-            txtVramPct.Text = "%" + vramPct;
-            barVramFill.Width = Math.Max(3, (42.0 * vramPct) / 100.0);
-
-            // Network throughput
-            try
+            if (showTeleGpu)
             {
-                long totalRecv = 0;
-                long totalSent = 0;
-                foreach (NetworkInterface ni in NetworkInterface.GetAllNetworkInterfaces())
+                txtGpuDetail.Text = string.Format("{0} • {1:0}°C", gpuModelName, gpuTemp);
+                txtGpuPct.Text = "%" + (int)gpuLoad;
+                DrawSparkline(sparkGpu, gpuHistory, 46, 16);
+            }
+
+            if (showTeleVram)
+            {
+                int vramPct = vramTotalGb > 0 ? (int)Math.Round((vramUsedGb / vramTotalGb) * 100.0) : 0;
+                txtVramDetail.Text = string.Format("{0:0.0} / {1:0} GB", vramUsedGb, vramTotalGb);
+                txtVramPct.Text = "%" + vramPct;
+                barVramFill.Width = Math.Max(3, (42.0 * vramPct) / 100.0);
+            }
+
+            // Network throughput (caches active NICs for 30s to avoid per-tick GetAdaptersAddresses allocations)
+            if (showTeleNet)
+            {
+                try
                 {
-                    if (ni.OperationalStatus == OperationalStatus.Up && ni.NetworkInterfaceType != NetworkInterfaceType.Loopback)
+                    if (cachedActiveNics == null || (telemetryTickCounter % 20 == 1))
                     {
-                        var stats = ni.GetIPv4Statistics();
+                        List<NetworkInterface> activeList = new List<NetworkInterface>(4);
+                        foreach (NetworkInterface ni in NetworkInterface.GetAllNetworkInterfaces())
+                        {
+                            if (ni.OperationalStatus == OperationalStatus.Up && ni.NetworkInterfaceType != NetworkInterfaceType.Loopback)
+                            {
+                                activeList.Add(ni);
+                            }
+                        }
+                        cachedActiveNics = activeList.ToArray();
+                    }
+
+                    long totalRecv = 0;
+                    long totalSent = 0;
+                    for (int i = 0; i < cachedActiveNics.Length; i++)
+                    {
+                        var stats = cachedActiveNics[i].GetIPv4Statistics();
                         totalRecv += stats.BytesReceived;
                         totalSent += stats.BytesSent;
                     }
-                }
 
-                DateTime now = DateTime.Now;
-                double elapsedSec = (now - lastNetTime).TotalSeconds;
-                if (lastBytesRecv > 0 && elapsedSec > 0.2)
-                {
-                    double downKbps = ((totalRecv - lastBytesRecv) * 8.0 / 1000.0) / elapsedSec;
-                    double upKbps = ((totalSent - lastBytesSent) * 8.0 / 1000.0) / elapsedSec;
-                    txtNetSpeed.Text = string.Format("↓ {0} ↑ {1}", FormatBitrate(downKbps), FormatBitrate(upKbps));
+                    DateTime now = DateTime.Now;
+                    double elapsedSec = (now - lastNetTime).TotalSeconds;
+                    if (lastBytesRecv > 0 && elapsedSec > 0.2)
+                    {
+                        double downKbps = ((totalRecv - lastBytesRecv) * 8.0 / 1000.0) / elapsedSec;
+                        double upKbps = ((totalSent - lastBytesSent) * 8.0 / 1000.0) / elapsedSec;
+                        txtNetSpeed.Text = string.Format("↓ {0} ↑ {1}", FormatBitrate(downKbps), FormatBitrate(upKbps));
+                    }
+                    lastBytesRecv = totalRecv;
+                    lastBytesSent = totalSent;
+                    lastNetTime = now;
                 }
-                lastBytesRecv = totalRecv;
-                lastBytesSent = totalSent;
-                lastNetTime = now;
+                catch { cachedActiveNics = null; }
+
+                txtNetPing.Text = string.Format("{0:0} ms", lastPingMs);
+                txtNetBadge.Text = lastPingMs < 40 ? "Harika" : (lastPingMs < 90 ? "İyi" : "Orta");
             }
-            catch { }
 
-            txtNetPing.Text = string.Format("{0:0} ms", lastPingMs);
-            txtNetBadge.Text = lastPingMs < 40 ? "Harika" : (lastPingMs < 90 ? "İyi" : "Orta");
-
-            // Disks C & D (Reuses cached DriveInfo instances)
-            UpdateDiskRow(driveC, txtDiskCDetail, barDiskCFill, txtDiskCPct);
-            UpdateDiskRow(driveD, txtDiskDDetail, barDiskDFill, txtDiskDPct);
+            // Disks C & D (Queried every 15s / 10th tick or on first tick, since GB disk space changes slowly)
+            if (showTeleDisks && (telemetryTickCounter == 1 || telemetryTickCounter % 10 == 0))
+            {
+                UpdateDiskRow(driveC, txtDiskCDetail, barDiskCFill, txtDiskCPct);
+                UpdateDiskRow(driveD, txtDiskDDetail, barDiskDFill, txtDiskDPct);
+            }
         }
 
         private string FormatBitrate(double kbps)
@@ -5672,7 +5741,7 @@ namespace OpenWidget
                 {
                     savedCalWidth = calendarWindow.ActualWidth;
                     savedCalHeight = calendarWindow.ActualHeight;
-                    if (isWindowInitialized) SaveSettings();
+                    SaveSettingsDebounced();
                 }
             };
 
@@ -5693,12 +5762,12 @@ namespace OpenWidget
                 }
                 try
                 {
-                    IntPtr calHwnd = new WindowInteropHelper(calendarWindow).Handle;
+                    IntPtr calHwnd = cachedCalHwnd != IntPtr.Zero ? cachedCalHwnd : new WindowInteropHelper(calendarWindow).Handle;
                     ReleaseCapture();
                     SendMessage(calHwnd, WM_NCLBUTTONDOWN, (IntPtr)HT_CAPTION, IntPtr.Zero);
                     savedCalLeft = calendarWindow.Left;
                     savedCalTop = calendarWindow.Top;
-                    SaveSettings();
+                    SaveSettingsDebounced();
                     e.Handled = true;
                 }
                 catch { }
@@ -5707,6 +5776,7 @@ namespace OpenWidget
             calendarWindow.Loaded += (s, e) =>
             {
                 IntPtr calHwnd = new WindowInteropHelper(calendarWindow).Handle;
+                cachedCalHwnd = calHwnd;
                 int exStyle = GetWindowLong(calHwnd, GWL_EXSTYLE);
                 SetWindowLong(calHwnd, GWL_EXSTYLE, exStyle | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE);
                 AttachToDesktopShell(calHwnd);
@@ -6147,93 +6217,115 @@ namespace OpenWidget
                 txtCalMonthYearLabel.Text = trMonthNames[calDisplayedMonth.Month] + " " + calDisplayedMonth.Year;
 
                 List<CalendarEventItem> snapshot;
+                int evVer;
                 lock (calEventsLock)
                 {
                     snapshot = new List<CalendarEventItem>(allCalendarEvents);
+                    evVer = calEventsVersion;
                 }
 
-                // 1. Rebuild Right Pane Event Pill Cards FIRST so we know the exact target window height
-                calEventsListPanel.Children.Clear();
                 List<CalendarEventItem> dayEvents = GetEventsForDate(snapshot, calSelectedDate.Date);
-
                 bool isViewingToday = (calSelectedDate.Date == today);
+                DateTime now = DateTime.Now;
+
+                // Compute status signature for right pane so 45s timer skips rebuilding UI when nothing changed
+                int activeStateMask = 0;
                 if (isViewingToday)
                 {
-                    txtCalRightScheduleTitle.Text = string.Format("BUGÜN • {0} {1} ({2})", today.Day, trMonthNamesUpper[today.Month], dayEvents.Count > 0 ? (dayEvents.Count + " ETKİNLİK") : "BOŞ");
-                }
-                else
-                {
-                    txtCalRightScheduleTitle.Text = string.Format("{0} {1} {2} • {3} ETKİNLİK",
-                        calSelectedDate.Day,
-                        trMonthNamesUpper[calSelectedDate.Month],
-                        trDayNamesShortUpper[(int)calSelectedDate.DayOfWeek],
-                        dayEvents.Count);
-                }
-
-                DateTime now = DateTime.Now;
-                if (dayEvents.Count == 0)
-                {
-                    Border emptyBox = new Border
+                    for (int i = 0; i < dayEvents.Count; i++)
                     {
-                        CornerRadius = new CornerRadius(8),
-                        Background = HexBrush("#4426201D"),
-                        BorderBrush = HexBrush("#382E28"),
-                        BorderThickness = new Thickness(1),
-                        Padding = new Thickness(10, 7, 10, 7),
-                        Margin = new Thickness(0, 0, 0, 6)
-                    };
-                    emptyBox.Child = new TextBlock
-                    {
-                        Text = isViewingToday ? "Bugün için planlanmış ders veya etkinlik yok." : "Bu tarihte kayıtlı etkinlik bulunmuyor.",
-                        Foreground = HexBrush("#9E8C7E"),
-                        FontSize = 11
-                    };
-                    calEventsListPanel.Children.Add(emptyBox);
-                }
-                else
-                {
-                    foreach (CalendarEventItem ev in dayEvents)
-                    {
-                        calEventsListPanel.Children.Add(CreateAppleCalendarEventPill(ev, now, isViewingToday));
+                        CalendarEventItem ev = dayEvents[i];
+                        int st = (!ev.AllDay && now >= ev.Start && now <= ev.End) ? 2 : ((!ev.AllDay && now > ev.End) ? 1 : 0);
+                        activeStateMask = (activeStateMask * 31) + st;
                     }
                 }
+                string rightSig = string.Format("{0:yyyyMMdd}|{1:yyyyMMdd}|{2}|{3}|{4}|{5}",
+                    today, calSelectedDate.Date, evVer, accentColorHex, dayEvents.Count, activeStateMask);
 
-                // Just like iPhone Apple Calendar widget: if viewing Today, also show "SIRADAKİ (YARIN / YAKLAŞAN)" below!
-                if (isViewingToday)
+                if (autoShrinkHeight || rightSig != lastRightScheduleSignature)
                 {
-                    for (int ahead = 1; ahead <= 7; ahead++)
+                    lastRightScheduleSignature = rightSig;
+
+                    // 1. Rebuild Right Pane Event Pill Cards FIRST so we know the exact target window height
+                    calEventsListPanel.Children.Clear();
+
+                    if (isViewingToday)
                     {
-                        DateTime nextDate = today.AddDays(ahead);
-                        List<CalendarEventItem> nextEvents = GetEventsForDate(snapshot, nextDate);
-                        if (nextEvents.Count > 0)
+                        txtCalRightScheduleTitle.Text = string.Format("BUGÜN • {0} {1} ({2})", today.Day, trMonthNamesUpper[today.Month], dayEvents.Count > 0 ? (dayEvents.Count + " ETKİNLİK") : "BOŞ");
+                    }
+                    else
+                    {
+                        txtCalRightScheduleTitle.Text = string.Format("{0} {1} {2} • {3} ETKİNLİK",
+                            calSelectedDate.Day,
+                            trMonthNamesUpper[calSelectedDate.Month],
+                            trDayNamesShortUpper[(int)calSelectedDate.DayOfWeek],
+                            dayEvents.Count);
+                    }
+
+                    if (dayEvents.Count == 0)
+                    {
+                        Border emptyBox = new Border
                         {
-                            string nextHdr = ahead == 1
-                                ? string.Format("SIRADAKİ • YARIN ({0} {1})", nextDate.Day, trMonthNamesUpper[nextDate.Month])
-                                : string.Format("SIRADAKİ • {0} {1} {2}", nextDate.Day, trMonthNamesUpper[nextDate.Month], trDayNamesUpper[(int)nextDate.DayOfWeek]);
-
-                            calEventsListPanel.Children.Add(new TextBlock
-                            {
-                                Text = nextHdr,
-                                Foreground = HexBrush("#A8988C"),
-                                FontSize = 9.5,
-                                FontWeight = FontWeights.Bold,
-                                Margin = new Thickness(2, 5, 0, 4)
-                            });
-
-                            int shownNext = 0;
-                            foreach (CalendarEventItem nev in nextEvents)
-                            {
-                                calEventsListPanel.Children.Add(CreateAppleCalendarEventPill(nev, now, false));
-                                shownNext++;
-                                if (shownNext >= 3) break;
-                            }
-                            break;
+                            CornerRadius = new CornerRadius(8),
+                            Background = HexBrush("#4426201D"),
+                            BorderBrush = HexBrush("#382E28"),
+                            BorderThickness = new Thickness(1),
+                            Padding = new Thickness(10, 7, 10, 7),
+                            Margin = new Thickness(0, 0, 0, 6)
+                        };
+                        emptyBox.Child = new TextBlock
+                        {
+                            Text = isViewingToday ? "Bugün için planlanmış ders veya etkinlik yok." : "Bu tarihte kayıtlı etkinlik bulunmuyor.",
+                            Foreground = HexBrush("#9E8C7E"),
+                            FontSize = 11
+                        };
+                        calEventsListPanel.Children.Add(emptyBox);
+                    }
+                    else
+                    {
+                        foreach (CalendarEventItem ev in dayEvents)
+                        {
+                            calEventsListPanel.Children.Add(CreateAppleCalendarEventPill(ev, now, isViewingToday));
                         }
                     }
-                }
 
-                // Auto-fit window height to the events on the right so no scrollbar is needed
-                FitCalendarHeightToContent(autoShrinkHeight);
+                    // Just like iPhone Apple Calendar widget: if viewing Today, also show "SIRADAKİ (YARIN / YAKLAŞAN)" below!
+                    if (isViewingToday)
+                    {
+                        for (int ahead = 1; ahead <= 7; ahead++)
+                        {
+                            DateTime nextDate = today.AddDays(ahead);
+                            List<CalendarEventItem> nextEvents = GetEventsForDate(snapshot, nextDate);
+                            if (nextEvents.Count > 0)
+                            {
+                                string nextHdr = ahead == 1
+                                    ? string.Format("SIRADAKİ • YARIN ({0} {1})", nextDate.Day, trMonthNamesUpper[nextDate.Month])
+                                    : string.Format("SIRADAKİ • {0} {1} {2}", nextDate.Day, trMonthNamesUpper[nextDate.Month], trDayNamesUpper[(int)nextDate.DayOfWeek]);
+
+                                calEventsListPanel.Children.Add(new TextBlock
+                                {
+                                    Text = nextHdr,
+                                    Foreground = HexBrush("#A8988C"),
+                                    FontSize = 9.5,
+                                    FontWeight = FontWeights.Bold,
+                                    Margin = new Thickness(2, 5, 0, 4)
+                                });
+
+                                int shownNext = 0;
+                                foreach (CalendarEventItem nev in nextEvents)
+                                {
+                                    calEventsListPanel.Children.Add(CreateAppleCalendarEventPill(nev, now, false));
+                                    shownNext++;
+                                    if (shownNext >= 3) break;
+                                }
+                                break;
+                            }
+                        }
+                    }
+
+                    // Auto-fit window height to the events on the right so no scrollbar is needed
+                    FitCalendarHeightToContent(autoShrinkHeight);
+                }
 
                 // 2. Rebuild Left Pane Mini Month Stack to fill vertical height with fixed-row-height weeks/months (no ugly row stretching)
                 double effectiveH = (!double.IsNaN(calendarWindow.Height) && calendarWindow.Height > 200)
@@ -6249,22 +6341,31 @@ namespace OpenWidget
             if (calMiniMonthGrid == null) return;
             try
             {
-                string[] trMonthNamesUpper = { "", "OCAK", "ŞUBAT", "MART", "NİSAN", "MAYIS", "HAZİRAN", "TEMMUZ", "AĞUSTOS", "EYLÜL", "EKİM", "KASIM", "ARALIK" };
                 DateTime today = DateTime.Today;
-
-                List<CalendarEventItem> snapshot;
-                lock (calEventsLock)
-                {
-                    snapshot = new List<CalendarEventItem>(allCalendarEvents);
-                }
-
-                calMiniMonthGrid.Children.Clear();
-
-                // Available height in left column below the weekday header
                 double availLeftH = Math.Max(138.0, windowHeight - 90.0);
-                double usedH = 0.0;
                 const double rowH = 22.0;
                 const double subHdrH = 22.0;
+
+                // Quantize available height into discrete 22px week steps so dragging/resizing doesn't rebuild the visual tree on every pixel
+                int quantizedSteps = (int)(availLeftH / 11.0);
+                Dictionary<DateTime, byte> dotsLookup;
+                int evVer;
+                lock (calEventsLock)
+                {
+                    dotsLookup = calEventDotsByDate;
+                    evVer = calEventsVersion;
+                }
+
+                string leftSig = string.Format("{0:yyyyMM}|{1:yyyyMMdd}|{2:yyyyMMdd}|{3}|{4}|{5}",
+                    calDisplayedMonth, calSelectedDate.Date, today, evVer, accentColorHex, quantizedSteps);
+                if (leftSig == lastLeftColumnSignature && calMiniMonthGrid.Children.Count > 0)
+                    return;
+                lastLeftColumnSignature = leftSig;
+
+                string[] trMonthNamesUpper = { "", "OCAK", "ŞUBAT", "MART", "NİSAN", "MAYIS", "HAZİRAN", "TEMMUZ", "AĞUSTOS", "EYLÜL", "EKİM", "KASIM", "ARALIK" };
+
+                calMiniMonthGrid.Children.Clear();
+                double usedH = 0.0;
 
                 for (int m = 0; m < 12; m++)
                 {
@@ -6331,17 +6432,11 @@ namespace OpenWidget
                             bool isToday = (cellDate == today);
                             bool isSelected = (cellDate == calSelectedDate.Date);
 
-                            bool hasPrimaryEvent = false;
-                            bool hasHolidayEvent = false;
-                            for (int k = 0; k < snapshot.Count; k++)
-                            {
-                                CalendarEventItem ev = snapshot[k];
-                                if (DoesEventOccurOnDate(ev, cellDate))
-                                {
-                                    if (ev.Source == "holiday") hasHolidayEvent = true;
-                                    else hasPrimaryEvent = true;
-                                }
-                            }
+                            // O(1) pre-indexed dictionary lookup instead of O(N) loop over all 204 events per cell
+                            byte dotMask = 0;
+                            if (dotsLookup != null) dotsLookup.TryGetValue(cellDate, out dotMask);
+                            bool hasPrimaryEvent = (dotMask & 1) != 0;
+                            bool hasHolidayEvent = (dotMask & 2) != 0;
 
                             Border dayCell = new Border
                             {
@@ -6682,10 +6777,22 @@ namespace OpenWidget
         {
             try
             {
-                List<CalendarEventItem> loaded = new List<CalendarEventItem>();
+                string datPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "calendar_events.dat");
+                string customPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "custom_events.dat");
+
+                DateTime datWrite = File.Exists(datPath) ? File.GetLastWriteTimeUtc(datPath) : DateTime.MinValue;
+                DateTime customWrite = File.Exists(customPath) ? File.GetLastWriteTimeUtc(customPath) : DateTime.MinValue;
+                bool hasLiveIcal = !string.IsNullOrEmpty(calendarSecretIcalUrl) && calendarSecretIcalUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase);
+
+                // Fast path: if background poll triggered and neither local .dat file changed nor live iCal URL is set, skip disk I/O & parsing
+                if (!showToastOnDone && !hasLiveIcal && datWrite == lastCalDatWriteUtc && customWrite == lastCustomDatWriteUtc && allCalendarEvents.Count > 0)
+                {
+                    return;
+                }
+
+                List<CalendarEventItem> loaded = new List<CalendarEventItem>(256);
 
                 // 1. Load pre-synced Google Calendar events (safaacikgoz43@gmail.com + Holidays) from calendar_events.dat
-                string datPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "calendar_events.dat");
                 if (File.Exists(datPath))
                 {
                     foreach (string line in File.ReadAllLines(datPath, Encoding.UTF8))
@@ -6696,7 +6803,6 @@ namespace OpenWidget
                 }
 
                 // 2. Load user's custom quick-added desktop events from custom_events.dat
-                string customPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "custom_events.dat");
                 if (File.Exists(customPath))
                 {
                     foreach (string line in File.ReadAllLines(customPath, Encoding.UTF8))
@@ -6707,7 +6813,7 @@ namespace OpenWidget
                 }
 
                 // 3. If user configured a live Google Calendar Secret iCal (.ics) URL, fetch & merge live!
-                if (!string.IsNullOrEmpty(calendarSecretIcalUrl) && calendarSecretIcalUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+                if (hasLiveIcal)
                 {
                     try
                     {
@@ -6730,10 +6836,41 @@ namespace OpenWidget
                     catch { }
                 }
 
+                // Pre-index O(1) event dot flags by date (bit 1 = primary/custom, bit 2 = holiday)
+                Dictionary<DateTime, byte> dotsMap = new Dictionary<DateTime, byte>(loaded.Count + 16);
+                for (int i = 0; i < loaded.Count; i++)
+                {
+                    CalendarEventItem ev = loaded[i];
+                    byte bit = (ev.Source == "holiday") ? (byte)2 : (byte)1;
+                    if (ev.AllDay)
+                    {
+                        DateTime s = ev.Start.Date;
+                        DateTime e = ev.End.Date;
+                        if (e <= s) e = s.AddDays(1);
+                        for (DateTime d = s; d < e; d = d.AddDays(1))
+                        {
+                            byte cur;
+                            dotsMap.TryGetValue(d, out cur);
+                            dotsMap[d] = (byte)(cur | bit);
+                        }
+                    }
+                    else
+                    {
+                        DateTime d = ev.Start.Date;
+                        byte cur;
+                        dotsMap.TryGetValue(d, out cur);
+                        dotsMap[d] = (byte)(cur | bit);
+                    }
+                }
+
                 lock (calEventsLock)
                 {
                     allCalendarEvents.Clear();
                     allCalendarEvents.AddRange(loaded);
+                    calEventDotsByDate = dotsMap;
+                    calEventsVersion++;
+                    lastCalDatWriteUtc = datWrite;
+                    lastCustomDatWriteUtc = customWrite;
                 }
 
                 Dispatcher.Invoke(() =>
