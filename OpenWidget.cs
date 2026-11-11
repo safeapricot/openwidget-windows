@@ -5821,18 +5821,9 @@ namespace OpenWidget
             {
                 CornerRadius = new CornerRadius(16),
                 BorderThickness = new Thickness(1),
-                Margin = new Thickness(4),
+                Margin = new Thickness(2),
                 Padding = new Thickness(14, 12, 14, 12)
             };
-            DropShadowEffect shadow = new DropShadowEffect
-            {
-                Color = Colors.Black,
-                BlurRadius = 14,
-                ShadowDepth = 2,
-                Opacity = 0.60
-            };
-            shadow.Freeze();
-            calOuterBorder.Effect = shadow;
 
             Grid rootGrid = new Grid();
 
@@ -6432,11 +6423,12 @@ namespace OpenWidget
                             bool isToday = (cellDate == today);
                             bool isSelected = (cellDate == calSelectedDate.Date);
 
-                            // O(1) pre-indexed dictionary lookup instead of O(N) loop over all 204 events per cell
+                            // O(1) pre-indexed dictionary lookup instead of O(N) loop over all events per cell
                             byte dotMask = 0;
                             if (dotsLookup != null) dotsLookup.TryGetValue(cellDate, out dotMask);
                             bool hasPrimaryEvent = (dotMask & 1) != 0;
                             bool hasHolidayEvent = (dotMask & 2) != 0;
+                            bool hasExamEvent = (dotMask & 4) != 0;
 
                             Border dayCell = new Border
                             {
@@ -6454,12 +6446,6 @@ namespace OpenWidget
                                 VerticalAlignment = VerticalAlignment.Center
                             };
 
-                            StackPanel cellStack = new StackPanel
-                            {
-                                VerticalAlignment = VerticalAlignment.Center,
-                                HorizontalAlignment = HorizontalAlignment.Center
-                            };
-
                             TextBlock txtNum = new TextBlock
                             {
                                 Text = cellDate.Day.ToString(),
@@ -6469,27 +6455,36 @@ namespace OpenWidget
                                     ? Brushes.White
                                     : (isCurrentMonth ? HexBrush("#FAF6F2") : HexBrush("#5E5047")),
                                 HorizontalAlignment = HorizontalAlignment.Center,
+                                VerticalAlignment = VerticalAlignment.Center,
                                 Margin = new Thickness(0, -1, 0, 0)
                             };
-                            cellStack.Children.Add(txtNum);
 
-                            if (hasPrimaryEvent || hasHolidayEvent)
+                            if (hasPrimaryEvent || hasHolidayEvent || hasExamEvent)
                             {
+                                StackPanel cellStack = new StackPanel
+                                {
+                                    VerticalAlignment = VerticalAlignment.Center,
+                                    HorizontalAlignment = HorizontalAlignment.Center
+                                };
+                                cellStack.Children.Add(txtNum);
+
+                                string dotHex = hasExamEvent ? "#C084FC" : (hasPrimaryEvent ? accentColorHex : "#9A9CFF");
                                 Border dot = new Border
                                 {
                                     Width = 3.5,
                                     Height = 3.5,
                                     CornerRadius = new CornerRadius(2),
-                                    Background = isToday
-                                        ? Brushes.White
-                                        : HexBrush(hasPrimaryEvent ? accentColorHex : "#9A9CFF"),
+                                    Background = isToday ? Brushes.White : HexBrush(dotHex),
                                     HorizontalAlignment = HorizontalAlignment.Center,
                                     Margin = new Thickness(0, 0.5, 0, 0)
                                 };
                                 cellStack.Children.Add(dot);
+                                dayCell.Child = cellStack;
                             }
-
-                            dayCell.Child = cellStack;
+                            else
+                            {
+                                dayCell.Child = txtNum;
+                            }
                             DateTime capturedDate = cellDate;
                             dayCell.MouseLeftButtonDown += (s, e) =>
                             {
@@ -6544,7 +6539,8 @@ namespace OpenWidget
             bool isOngoing = !ev.AllDay && isTodayCard && now >= ev.Start && now <= ev.End;
             bool isPastToday = !ev.AllDay && isTodayCard && now > ev.End;
 
-            string barHex = ev.Source == "holiday" ? "#9A9CFF" : (isOngoing ? accentColorHex : "#10B981");
+            string customCol = !string.IsNullOrEmpty(ev.ColorHex) ? ev.ColorHex : "#10B981";
+            string barHex = ev.Source == "holiday" ? "#9A9CFF" : (isOngoing ? accentColorHex : customCol);
             if (ev.Source == "custom") barHex = accentColorHex;
 
             Border card = new Border
@@ -6836,12 +6832,13 @@ namespace OpenWidget
                     catch { }
                 }
 
-                // Pre-index O(1) event dot flags by date (bit 1 = primary/custom, bit 2 = holiday)
+                // Pre-index O(1) event dot flags by date (bit 1 = primary/custom, bit 2 = holiday, bit 4 = exam/purple)
                 Dictionary<DateTime, byte> dotsMap = new Dictionary<DateTime, byte>(loaded.Count + 16);
                 for (int i = 0; i < loaded.Count; i++)
                 {
                     CalendarEventItem ev = loaded[i];
-                    byte bit = (ev.Source == "holiday") ? (byte)2 : (byte)1;
+                    bool isExam = (ev.ColorHex == "#C084FC") || (ev.Title != null && ev.Title.IndexOf("Sınav", StringComparison.OrdinalIgnoreCase) >= 0);
+                    byte bit = (ev.Source == "holiday") ? (byte)2 : (isExam ? (byte)4 : (byte)1);
                     if (ev.AllDay)
                     {
                         DateTime s = ev.Start.Date;
@@ -6879,6 +6876,9 @@ namespace OpenWidget
                     if (showToastOnDone)
                         ShowToast("Google Takvim senkronize edildi (" + loaded.Count + " etkinlik)");
                 });
+
+                // Trim startup/reload working set allocations in the background
+                TrimProcessMemory();
             }
             catch { }
         }
