@@ -1830,6 +1830,8 @@ namespace OpenWidget
         private static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
         [DllImport("user32.dll")]
         private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);
         [DllImport("kernel32.dll")]
         private static extern ulong GetTickCount64();
         [DllImport("kernel32.dll")]
@@ -1867,8 +1869,12 @@ namespace OpenWidget
 
         private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
         private static readonly IntPtr HWND_NOTOPMOST = new IntPtr(-2);
+        private static readonly IntPtr HWND_BOTTOM = new IntPtr(1);
+        private const int WS_EX_TOPMOST = 0x00000008;
+        private const uint GW_HWNDPREV = 3;
         private const uint SWP_NOSIZE = 0x0001;
         private const uint SWP_NOMOVE = 0x0002;
+        private const uint SWP_NOZORDER = 0x0004;
         private const uint SWP_NOACTIVATE = 0x0010;
         private const uint SWP_SHOWWINDOW = 0x0040;
 
@@ -2497,27 +2503,32 @@ namespace OpenWidget
         {
             try
             {
-                IntPtr progman = FindWindow("Progman", null);
-                IntPtr defView = FindWindowEx(progman, IntPtr.Zero, "SHELLDLL_DefView", null);
-                if (defView == IntPtr.Zero)
-                {
-                    EnumWindows((topHwnd, lParam) =>
-                    {
-                        IntPtr dv = FindWindowEx(topHwnd, IntPtr.Zero, "SHELLDLL_DefView", null);
-                        if (dv != IntPtr.Zero)
-                        {
-                            defView = dv;
-                            return false;
-                        }
-                        return true;
-                    }, IntPtr.Zero);
-                }
-                if (defView != IntPtr.Zero)
-                {
-                    SetWindowLongPtr64(hwnd, GWLP_HWNDPARENT, defView);
-                }
+                // Place widget on the desktop layer (bottom of normal windows) without binding GWLP_HWNDPARENT to WorkerW
+                SetWindowPos(hwnd, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
             }
             catch { }
+        }
+
+        private bool IsWindowAbove(IntPtr hwnd, IntPtr targetHwnd)
+        {
+            if (hwnd == IntPtr.Zero || targetHwnd == IntPtr.Zero || hwnd == targetHwnd) return false;
+            int exStyle = GetWindowLong(hwnd, GWL_EXSTYLE);
+            if ((exStyle & WS_EX_TOPMOST) != 0) return true;
+            IntPtr cur = GetWindow(targetHwnd, GW_HWNDPREV);
+            int steps = 0;
+            while (cur != IntPtr.Zero && steps < 64)
+            {
+                if (cur == hwnd) return true;
+                cur = GetWindow(cur, GW_HWNDPREV);
+                steps++;
+            }
+            return false;
+        }
+
+        private void SendWidgetToDesktopBottom(IntPtr hwnd)
+        {
+            SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+            SetWindowPos(hwnd, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
         }
 
         private void CheckAndEnforceShowDesktopImmunity()
@@ -2542,10 +2553,17 @@ namespace OpenWidget
                             SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
                         }
                     }
-                    else if (isShowDesktopActive && fg != hwnd)
+                    else if (fg != hwnd && cls != "Shell_TrayWnd" && cls != "NotifyIconOverflowWindow")
                     {
-                        isShowDesktopActive = false;
-                        SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+                        if (isShowDesktopActive)
+                        {
+                            isShowDesktopActive = false;
+                            SendWidgetToDesktopBottom(hwnd);
+                        }
+                        else if (IsWindowAbove(hwnd, fg))
+                        {
+                            SendWidgetToDesktopBottom(hwnd);
+                        }
                     }
                 }
             }
@@ -2604,13 +2622,20 @@ namespace OpenWidget
 
         private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
         {
+            const int WM_MOUSEACTIVATE = 0x0021;
+            const int MA_NOACTIVATE = 3;
             const int WM_HOTKEY = 0x0312;
             const int WM_SYSCOMMAND = 0x0112;
             const int SC_MINIMIZE = 0xF020;
             const int WM_WINDOWPOSCHANGING = 0x0046;
             const uint SWP_HIDEWINDOW = 0x0080;
 
-            if (msg == WM_HOTKEY && wParam.ToInt32() == HOTKEY_ID_MIC)
+            if (msg == WM_MOUSEACTIVATE)
+            {
+                handled = true;
+                return new IntPtr(MA_NOACTIVATE);
+            }
+            else if (msg == WM_HOTKEY && wParam.ToInt32() == HOTKEY_ID_MIC)
             {
                 ToggleMicrophoneMute();
                 handled = true;
@@ -2628,10 +2653,21 @@ namespace OpenWidget
                 try
                 {
                     WINDOWPOS wp = (WINDOWPOS)Marshal.PtrToStructure(lParam, typeof(WINDOWPOS));
+                    bool modified = false;
                     if ((wp.flags & SWP_HIDEWINDOW) != 0)
                     {
                         wp.flags &= ~SWP_HIDEWINDOW;
                         wp.flags |= SWP_SHOWWINDOW;
+                        modified = true;
+                    }
+                    // Prevent mouse clicks on the widget from raising it above normal windows (browsers, apps)
+                    if (!isShowDesktopActive && (wp.flags & SWP_NOZORDER) == 0 && wp.hwndInsertAfter == IntPtr.Zero)
+                    {
+                        wp.hwndInsertAfter = HWND_BOTTOM;
+                        modified = true;
+                    }
+                    if (modified)
+                    {
                         Marshal.StructureToPtr(wp, lParam, true);
                     }
                 }
