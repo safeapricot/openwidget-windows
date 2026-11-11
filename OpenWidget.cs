@@ -6921,39 +6921,80 @@ namespace OpenWidget
             string[] lines = unfolded.Split(new char[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
 
             bool inEvent = false;
-            string summary = "", location = "", desc = "", dtStartRaw = "", dtEndRaw = "";
-            bool isAllDay = false;
+            string summary = "", location = "", desc = "", dtStartRaw = "", dtEndRaw = "", uid = "", rrule = "", recurIdRaw = "", status = "", colorRaw = "";
+            List<string> exdates = new List<string>();
+
+            // Weekly classes are stored as ONE recurring VEVENT (RRULE) plus optional overrides (RECURRENCE-ID) and EXDATEs.
+            // We must expand them, otherwise only the very first occurrence (September) is shown.
+            List<CalendarEventItem> singles = new List<CalendarEventItem>();
+            Dictionary<string, HashSet<DateTime>> overriddenStarts = new Dictionary<string, HashSet<DateTime>>();
+            List<object[]> masters = new List<object[]>(); // [item, rrule, uid, exdateSet]
+
+            DateTime windowStart = DateTime.Today.AddMonths(-3);
+            DateTime windowEnd = DateTime.Today.AddMonths(9);
 
             foreach (string rawLine in lines)
             {
                 if (rawLine == "BEGIN:VEVENT")
                 {
                     inEvent = true;
-                    summary = ""; location = ""; desc = ""; dtStartRaw = ""; dtEndRaw = "";
-                    isAllDay = false;
+                    summary = ""; location = ""; desc = ""; dtStartRaw = ""; dtEndRaw = ""; uid = ""; rrule = ""; recurIdRaw = ""; status = ""; colorRaw = "";
+                    exdates = new List<string>();
                 }
                 else if (rawLine == "END:VEVENT" && inEvent)
                 {
                     inEvent = false;
                     DateTime sDt, eDt;
-                    if (TryParseIcsDate(dtStartRaw, out sDt, out isAllDay))
-                    {
-                        bool dummy;
-                        if (!TryParseIcsDate(dtEndRaw, out eDt, out dummy))
-                            eDt = isAllDay ? sDt.AddDays(1) : sDt.AddHours(1);
+                    bool isAllDay;
+                    if (!TryParseIcsDate(dtStartRaw, out sDt, out isAllDay)) continue;
+                    bool dummy;
+                    if (!TryParseIcsDate(dtEndRaw, out eDt, out dummy))
+                        eDt = isAllDay ? sDt.AddDays(1) : sDt.AddHours(1);
 
-                        results.Add(new CalendarEventItem
+                    string ttl = UnescapeIcsText(summary);
+                    bool isExam = ttl.IndexOf("Sınav", StringComparison.OrdinalIgnoreCase) >= 0 || ttl.IndexOf("Vize", StringComparison.OrdinalIgnoreCase) >= 0 || ttl.IndexOf("Final", StringComparison.OrdinalIgnoreCase) >= 0;
+                    CalendarEventItem item = new CalendarEventItem
+                    {
+                        Start = sDt,
+                        End = eDt,
+                        AllDay = isAllDay,
+                        Source = sourceTag,
+                        ColorHex = isExam ? "#C084FC" : defaultColor,
+                        Title = ttl,
+                        Location = UnescapeIcsText(location),
+                        Description = UnescapeIcsText(desc),
+                        HtmlLink = "https://calendar.google.com"
+                    };
+                    bool cancelled = status.Equals("CANCELLED", StringComparison.OrdinalIgnoreCase);
+
+                    if (!string.IsNullOrEmpty(recurIdRaw))
+                    {
+                        // Override of a single occurrence of a recurring series
+                        DateTime rid; bool ridAllDay;
+                        if (TryParseIcsDate(recurIdRaw, out rid, out ridAllDay))
                         {
-                            Start = sDt,
-                            End = eDt,
-                            AllDay = isAllDay,
-                            Source = sourceTag,
-                            ColorHex = defaultColor,
-                            Title = UnescapeIcsText(summary),
-                            Location = UnescapeIcsText(location),
-                            Description = UnescapeIcsText(desc),
-                            HtmlLink = "https://calendar.google.com"
-                        });
+                            HashSet<DateTime> set;
+                            if (!overriddenStarts.TryGetValue(uid, out set)) { set = new HashSet<DateTime>(); overriddenStarts[uid] = set; }
+                            set.Add(rid);
+                        }
+                        if (!cancelled) singles.Add(item);
+                    }
+                    else if (!string.IsNullOrEmpty(rrule))
+                    {
+                        HashSet<DateTime> exSet = new HashSet<DateTime>();
+                        foreach (string exLine in exdates)
+                        {
+                            foreach (string part in exLine.Split(','))
+                            {
+                                DateTime ex; bool exAd;
+                                if (TryParseIcsDate(part, out ex, out exAd)) exSet.Add(ex);
+                            }
+                        }
+                        if (!cancelled) masters.Add(new object[] { item, rrule, uid, exSet });
+                    }
+                    else if (!cancelled)
+                    {
+                        singles.Add(item);
                     }
                 }
                 else if (inEvent)
@@ -6968,10 +7009,124 @@ namespace OpenWidget
                         else if (keyPart.StartsWith("SUMMARY")) summary = valPart;
                         else if (keyPart.StartsWith("LOCATION")) location = valPart;
                         else if (keyPart.StartsWith("DESCRIPTION")) desc = valPart;
+                        else if (keyPart == "UID") uid = valPart.Trim();
+                        else if (keyPart == "RRULE") rrule = valPart.Trim();
+                        else if (keyPart.StartsWith("EXDATE")) exdates.Add(valPart.Trim());
+                        else if (keyPart.StartsWith("RECURRENCE-ID")) recurIdRaw = valPart.Trim();
+                        else if (keyPart == "STATUS") status = valPart.Trim();
                     }
                 }
             }
+
+            // Expand recurring masters into concrete occurrences
+            foreach (object[] mInfo in masters)
+            {
+                CalendarEventItem master = (CalendarEventItem)mInfo[0];
+                string rule = (string)mInfo[1];
+                string mUid = (string)mInfo[2];
+                HashSet<DateTime> exSet = (HashSet<DateTime>)mInfo[3];
+                HashSet<DateTime> ovSet;
+                overriddenStarts.TryGetValue(mUid, out ovSet);
+
+                foreach (DateTime occ in ExpandRRule(master.Start, rule, windowStart, windowEnd))
+                {
+                    if (exSet.Contains(occ)) continue;
+                    if (ovSet != null && ovSet.Contains(occ)) continue;
+                    TimeSpan dur = master.End - master.Start;
+                    results.Add(new CalendarEventItem
+                    {
+                        Start = occ,
+                        End = occ + dur,
+                        AllDay = master.AllDay,
+                        Source = master.Source,
+                        ColorHex = master.ColorHex,
+                        Title = master.Title,
+                        Location = master.Location,
+                        Description = master.Description,
+                        HtmlLink = master.HtmlLink
+                    });
+                }
+            }
+            results.AddRange(singles);
             return results;
+        }
+
+        // Minimal RFC 5545 RRULE expander: FREQ=DAILY/WEEKLY/MONTHLY/YEARLY, INTERVAL, COUNT, UNTIL, BYDAY (weekly)
+        private IEnumerable<DateTime> ExpandRRule(DateTime dtStart, string rule, DateTime windowStart, DateTime windowEnd)
+        {
+            string freq = "WEEKLY";
+            int interval = 1;
+            int count = -1;
+            DateTime until = DateTime.MaxValue;
+            List<DayOfWeek> byDays = new List<DayOfWeek>();
+
+            foreach (string kv in rule.Split(';'))
+            {
+                int eq = kv.IndexOf('=');
+                if (eq <= 0) continue;
+                string k = kv.Substring(0, eq).ToUpperInvariant();
+                string v = kv.Substring(eq + 1);
+                if (k == "FREQ") freq = v.ToUpperInvariant();
+                else if (k == "INTERVAL") { int iv; if (int.TryParse(v, out iv) && iv > 0) interval = iv; }
+                else if (k == "COUNT") { int c; if (int.TryParse(v, out c)) count = c; }
+                else if (k == "UNTIL") { DateTime u; bool uad; if (TryParseIcsDate(v, out u, out uad)) until = uad ? u.AddDays(1).AddSeconds(-1) : u; }
+                else if (k == "BYDAY")
+                {
+                    foreach (string d in v.Split(','))
+                    {
+                        string dd = d.Trim().ToUpperInvariant();
+                        if (dd.Length > 2) dd = dd.Substring(dd.Length - 2);
+                        switch (dd)
+                        {
+                            case "MO": byDays.Add(DayOfWeek.Monday); break;
+                            case "TU": byDays.Add(DayOfWeek.Tuesday); break;
+                            case "WE": byDays.Add(DayOfWeek.Wednesday); break;
+                            case "TH": byDays.Add(DayOfWeek.Thursday); break;
+                            case "FR": byDays.Add(DayOfWeek.Friday); break;
+                            case "SA": byDays.Add(DayOfWeek.Saturday); break;
+                            case "SU": byDays.Add(DayOfWeek.Sunday); break;
+                        }
+                    }
+                }
+            }
+
+            int produced = 0;
+            int safety = 0;
+            if (freq == "WEEKLY")
+            {
+                if (byDays.Count == 0) byDays.Add(dtStart.DayOfWeek);
+                int startOffset = ((int)dtStart.DayOfWeek + 6) % 7;
+                DateTime weekStart = dtStart.Date.AddDays(-startOffset); // Monday of first week
+                while (safety++ < 2000)
+                {
+                    for (int i = 0; i < 7; i++)
+                    {
+                        DateTime day = weekStart.AddDays(i);
+                        if (!byDays.Contains(day.DayOfWeek)) continue;
+                        DateTime occ = day + dtStart.TimeOfDay;
+                        if (occ < dtStart) continue;
+                        if (occ > until || (count >= 0 && produced >= count)) yield break;
+                        produced++;
+                        if (occ > windowEnd) yield break;
+                        if (occ >= windowStart) yield return occ;
+                    }
+                    weekStart = weekStart.AddDays(7 * interval);
+                }
+            }
+            else
+            {
+                DateTime occ = dtStart;
+                while (safety++ < 5000)
+                {
+                    if (occ > until || (count >= 0 && produced >= count) || occ > windowEnd) yield break;
+                    produced++;
+                    if (occ >= windowStart) yield return occ;
+                    if (freq == "DAILY") occ = occ.AddDays(interval);
+                    else if (freq == "MONTHLY") occ = occ.AddMonths(interval);
+                    else if (freq == "YEARLY") occ = occ.AddYears(interval);
+                    else yield break;
+                }
+            }
         }
 
         private bool TryParseIcsDate(string raw, out DateTime dt, out bool allDay)
