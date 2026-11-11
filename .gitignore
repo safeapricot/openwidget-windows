@@ -1,4 +1,6 @@
 ﻿settings.cfg
+calendar_events.dat
+custom_events.dat
 *.pdb
 *.log
 

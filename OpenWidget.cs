@@ -840,6 +840,48 @@ namespace OpenWidget
         private bool anyWirelessDeviceActive = true;
         private int currentSettingsTab = 0;
 
+        // Standalone Google Calendar Widget (Apple Calendar iOS Style Desktop Companion)
+        private bool showCalendarWidget = true;
+        private double savedCalWidth = 468;
+        private double savedCalHeight = 258;
+        private double savedCalLeft = double.NaN;
+        private double savedCalTop = double.NaN;
+        private string calendarSecretIcalUrl = "";
+        private Window calendarWindow;
+        private Border calOuterBorder;
+        private WindowChrome calWindowChrome;
+        private Border calResizeGrip;
+        private Button btnCalLockDrag;
+        private TextBlock txtCalDayOfWeekHeader;
+        private TextBlock txtCalBigDayNum;
+        private TextBlock txtCalMonthYearLabel;
+        private UniformGrid calMiniMonthGrid;
+        private TextBlock txtCalRightScheduleTitle;
+        private StackPanel calEventsListPanel;
+        private Border calQuickAddPanel;
+        private TextBox txtCalQuickTitle;
+        private TextBox txtCalQuickTime;
+        private TextBox txtCalQuickLoc;
+        private DateTime calDisplayedMonth = new DateTime(DateTime.Now.Year, DateTime.Now.Month, 1);
+        private DateTime calSelectedDate = DateTime.Today;
+        private readonly List<CalendarEventItem> allCalendarEvents = new List<CalendarEventItem>();
+        private readonly object calEventsLock = new object();
+        private System.Windows.Forms.ToolStripMenuItem trayCalendarItem;
+
+        private class CalendarEventItem
+        {
+            public DateTime Start;
+            public DateTime End;
+            public bool AllDay;
+            public string Source; // "primary", "holiday", "custom", "ical"
+            public string ColorHex;
+            public string Title;
+            public string Location;
+            public string Description;
+            public string HtmlLink;
+            public string RawCustomLine;
+        }
+
         // Section Containers for Dynamic Reordering & Visibility
         private StackPanel modulesHostPanel;
         private StackPanel secContainerWeather;
@@ -971,6 +1013,35 @@ namespace OpenWidget
                             else if (k == "ShowTeleVram") showTeleVram = (v == "1" || v.Equals("true", StringComparison.OrdinalIgnoreCase));
                             else if (k == "ShowTeleNet") showTeleNet = (v == "1" || v.Equals("true", StringComparison.OrdinalIgnoreCase));
                             else if (k == "ShowTeleDisks") showTeleDisks = (v == "1" || v.Equals("true", StringComparison.OrdinalIgnoreCase));
+                            else if (k == "ShowCalendarWidget") showCalendarWidget = (v == "1" || v.Equals("true", StringComparison.OrdinalIgnoreCase));
+                            else if (k == "CalWidth")
+                            {
+                                double cw;
+                                if (double.TryParse(v, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out cw))
+                                    savedCalWidth = Math.Max(380, Math.Min(900, cw));
+                            }
+                            else if (k == "CalHeight")
+                            {
+                                double ch;
+                                if (double.TryParse(v, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out ch))
+                                    savedCalHeight = Math.Max(210, Math.Min(800, ch));
+                            }
+                            else if (k == "CalLeft")
+                            {
+                                double cl;
+                                if (double.TryParse(v, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out cl))
+                                    savedCalLeft = cl;
+                            }
+                            else if (k == "CalTop")
+                            {
+                                double ct;
+                                if (double.TryParse(v, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out ct))
+                                    savedCalTop = ct;
+                            }
+                            else if (k == "CalendarIcalUrl")
+                            {
+                                calendarSecretIcalUrl = v.Trim();
+                            }
                         }
                     }
                 }
@@ -1006,6 +1077,15 @@ namespace OpenWidget
                 sb.AppendLine("ShowTeleVram=" + (showTeleVram ? "1" : "0"));
                 sb.AppendLine("ShowTeleNet=" + (showTeleNet ? "1" : "0"));
                 sb.AppendLine("ShowTeleDisks=" + (showTeleDisks ? "1" : "0"));
+                sb.AppendLine("ShowCalendarWidget=" + (showCalendarWidget ? "1" : "0"));
+                sb.AppendLine("CalWidth=" + savedCalWidth.ToString("0", System.Globalization.CultureInfo.InvariantCulture));
+                sb.AppendLine("CalHeight=" + savedCalHeight.ToString("0", System.Globalization.CultureInfo.InvariantCulture));
+                if (!double.IsNaN(savedCalLeft))
+                    sb.AppendLine("CalLeft=" + savedCalLeft.ToString("0", System.Globalization.CultureInfo.InvariantCulture));
+                if (!double.IsNaN(savedCalTop))
+                    sb.AppendLine("CalTop=" + savedCalTop.ToString("0", System.Globalization.CultureInfo.InvariantCulture));
+                if (!string.IsNullOrEmpty(calendarSecretIcalUrl))
+                    sb.AppendLine("CalendarIcalUrl=" + calendarSecretIcalUrl);
                 File.WriteAllText(settingsFilePath, sb.ToString());
             }
             catch { }
@@ -1177,6 +1257,7 @@ namespace OpenWidget
                         FitHeightToContentIfCompact();
                     }
                     isWindowInitialized = true;
+                    InitializeCalendarWidget();
                     SaveSettings();
                     TrimProcessMemory();
                 }), DispatcherPriority.Loaded);
@@ -1193,6 +1274,15 @@ namespace OpenWidget
             this.Closed += (s, e) =>
             {
                 SaveSettings();
+                try
+                {
+                    if (calendarWindow != null)
+                    {
+                        calendarWindow.Close();
+                        calendarWindow = null;
+                    }
+                }
+                catch { }
                 try
                 {
                     IntPtr hwnd = new WindowInteropHelper(this).Handle;
@@ -1260,6 +1350,8 @@ namespace OpenWidget
                 IntPtr hwnd = new WindowInteropHelper(this).Handle;
                 if (hwnd == IntPtr.Zero) return;
 
+                IntPtr calHwnd = (calendarWindow != null && showCalendarWidget) ? new WindowInteropHelper(calendarWindow).Handle : IntPtr.Zero;
+
                 IntPtr fg = GetForegroundWindow();
                 if (fg != IntPtr.Zero)
                 {
@@ -1273,18 +1365,22 @@ namespace OpenWidget
                         {
                             isShowDesktopActive = true;
                             SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+                            if (calHwnd != IntPtr.Zero)
+                                SetWindowPos(calHwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
                         }
                     }
-                    else if (fg != hwnd && cls != "Shell_TrayWnd" && cls != "NotifyIconOverflowWindow")
+                    else if (fg != hwnd && fg != calHwnd && cls != "Shell_TrayWnd" && cls != "NotifyIconOverflowWindow")
                     {
                         if (isShowDesktopActive)
                         {
                             isShowDesktopActive = false;
                             SendWidgetToDesktopBottom(hwnd);
+                            if (calHwnd != IntPtr.Zero) SendWidgetToDesktopBottom(calHwnd);
                         }
-                        else if (IsWindowAbove(hwnd, fg))
+                        else
                         {
-                            SendWidgetToDesktopBottom(hwnd);
+                            if (IsWindowAbove(hwnd, fg)) SendWidgetToDesktopBottom(hwnd);
+                            if (calHwnd != IntPtr.Zero && IsWindowAbove(calHwnd, fg)) SendWidgetToDesktopBottom(calHwnd);
                         }
                     }
                 }
@@ -1524,6 +1620,7 @@ namespace OpenWidget
                 UpdateBulbPowerButtonUi();
                 UpdateMonitorLinkButtonUi();
                 UpdateDraggableButtonUi();
+                ApplyCalendarWidgetTheme();
 
                 if (toastBorder != null)
                 {
@@ -2602,6 +2699,13 @@ namespace OpenWidget
             settingsItem.Click += (s, e) => OpenSettingsWindow();
             menu.Items.Add(settingsItem);
 
+            trayCalendarItem = new System.Windows.Forms.ToolStripMenuItem(showCalendarWidget ? "📅 Google Takvim Widget'ını Gizle" : "📅 Google Takvim Widget'ını Göster");
+            trayCalendarItem.Click += (s, e) =>
+            {
+                SetCalendarWidgetVisible(!showCalendarWidget);
+            };
+            menu.Items.Add(trayCalendarItem);
+
             menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
 
             trayLockItem = new System.Windows.Forms.ToolStripMenuItem("🔓 Taşınabilir & Boyutlandırılabilir Modu Aç");
@@ -2810,6 +2914,9 @@ namespace OpenWidget
                 this.ResizeMode = ResizeMode.CanResize;
                 if (windowChrome != null) windowChrome.ResizeBorderThickness = new Thickness(8);
                 if (resizeGripIndicator != null) resizeGripIndicator.Visibility = Visibility.Visible;
+                if (calendarWindow != null) calendarWindow.ResizeMode = ResizeMode.CanResize;
+                if (calWindowChrome != null) calWindowChrome.ResizeBorderThickness = new Thickness(8);
+                if (calResizeGrip != null) calResizeGrip.Visibility = Visibility.Visible;
                 if (trayLockItem != null) trayLockItem.Text = "📌 Konumu ve Boyutu Kilitle (Sabit Mod)";
                 ShowToast("Taşınabilir Mod Açık: Sürükleyebilir veya kenarlardan boyutlandırabilirsiniz");
             }
@@ -2818,6 +2925,9 @@ namespace OpenWidget
                 this.ResizeMode = ResizeMode.NoResize;
                 if (windowChrome != null) windowChrome.ResizeBorderThickness = new Thickness(0);
                 if (resizeGripIndicator != null) resizeGripIndicator.Visibility = Visibility.Collapsed;
+                if (calendarWindow != null) calendarWindow.ResizeMode = ResizeMode.NoResize;
+                if (calWindowChrome != null) calWindowChrome.ResizeBorderThickness = new Thickness(0);
+                if (calResizeGrip != null) calResizeGrip.Visibility = Visibility.Collapsed;
                 if (trayLockItem != null) trayLockItem.Text = "🔓 Taşınabilir & Boyutlandırılabilir Modu Aç";
                 SaveSettings();
                 ShowToast("Konum ve boyut kilitlendi");
@@ -2827,20 +2937,37 @@ namespace OpenWidget
 
         private void UpdateDraggableButtonUi()
         {
-            if (btnLockDrag == null) return;
-            if (isDraggable)
+            if (btnLockDrag != null)
             {
-                btnLockDrag.Content = new TextBlock { Text = "🔓", FontSize = 11.5, Foreground = HexBrush(accentColorHex), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-                btnLockDrag.Background = HexBrush("#33251D");
-                btnLockDrag.BorderBrush = HexBrush(accentColorHex);
-                btnLockDrag.ToolTip = "Taşınabilir & Boyutlandırılabilir Mod Açık (Sabitlemek için tıklayın)";
+                if (isDraggable)
+                {
+                    btnLockDrag.Content = new TextBlock { Text = "🔓", FontSize = 11.5, Foreground = HexBrush(accentColorHex), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+                    btnLockDrag.Background = HexBrush("#33251D");
+                    btnLockDrag.BorderBrush = HexBrush(accentColorHex);
+                    btnLockDrag.ToolTip = "Taşınabilir & Boyutlandırılabilir Mod Açık (Sabitlemek için tıklayın)";
+                }
+                else
+                {
+                    btnLockDrag.Content = new TextBlock { Text = "📌", FontSize = 11.5, Foreground = HexBrush("#C7B9AE"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+                    btnLockDrag.Background = HexBrush("#26201D");
+                    btnLockDrag.BorderBrush = Brushes.Transparent;
+                    btnLockDrag.ToolTip = "Sabit Mod (Taşınabilir ve Boyutlandırılabilir Modu Açmak İçin Tıklayın)";
+                }
             }
-            else
+            if (btnCalLockDrag != null)
             {
-                btnLockDrag.Content = new TextBlock { Text = "📌", FontSize = 11.5, Foreground = HexBrush("#C7B9AE"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-                btnLockDrag.Background = HexBrush("#26201D");
-                btnLockDrag.BorderBrush = Brushes.Transparent;
-                btnLockDrag.ToolTip = "Sabit Mod (Taşınabilir ve Boyutlandırılabilir Modu Açmak İçin Tıklayın)";
+                if (isDraggable)
+                {
+                    btnCalLockDrag.Content = new TextBlock { Text = "🔓", FontSize = 10.5, Foreground = HexBrush(accentColorHex), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+                    btnCalLockDrag.Background = HexBrush("#33251D");
+                    btnCalLockDrag.BorderBrush = HexBrush(accentColorHex);
+                }
+                else
+                {
+                    btnCalLockDrag.Content = new TextBlock { Text = "📌", FontSize = 10.5, Foreground = HexBrush("#C7B9AE"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+                    btnCalLockDrag.Background = HexBrush("#26201D");
+                    btnCalLockDrag.BorderBrush = Brushes.Transparent;
+                }
             }
         }
 
@@ -3158,6 +3285,102 @@ namespace OpenWidget
             // =========================================================
             // TAB 1: LAYOUT, DRAG-AND-DROP REORDERING & TELEMETRY SUB-TOGGLES
             // =========================================================
+            Border calCompanionCard = new Border
+            {
+                CornerRadius = new CornerRadius(9),
+                Background = HexBrush(showCalendarWidget ? "#2C221C" : "#1F1916"),
+                BorderBrush = HexBrush(showCalendarWidget ? accentColorHex : "#3A2F29"),
+                BorderThickness = new Thickness(1.2),
+                Padding = new Thickness(10, 8, 10, 8),
+                Margin = new Thickness(0, 0, 0, 10)
+            };
+            StackPanel calCompanionStack = new StackPanel();
+            Grid calCompanionTop = new Grid();
+            calCompanionTop.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            calCompanionTop.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            StackPanel calCompanionInfo = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            calCompanionInfo.Children.Add(new TextBlock
+            {
+                Text = "📅 Google Takvim Widget'ı (Ayrı Masaüstü Eklentisi)",
+                Foreground = HexBrush("#FAF6F2"),
+                FontSize = 11.5,
+                FontWeight = FontWeights.Bold
+            });
+            calCompanionInfo.Children.Add(new TextBlock
+            {
+                Text = "Apple Calendar tarzı bağımsız masaüstü penceresi (safaacikgoz43@gmail.com)",
+                Foreground = HexBrush("#A8988C"),
+                FontSize = 10,
+                Margin = new Thickness(0, 1, 0, 0)
+            });
+            Grid.SetColumn(calCompanionInfo, 0);
+            calCompanionTop.Children.Add(calCompanionInfo);
+
+            Button btnToggleCalWidget = CreateStyledIconButton(
+                showCalendarWidget ? "#38281E" : "#221C18",
+                showCalendarWidget ? accentColorHex : "#3E322B",
+                "Ayrı Google Takvim masaüstü widget'ını aç veya kapat");
+            btnToggleCalWidget.Padding = new Thickness(10, 4, 10, 4);
+            btnToggleCalWidget.MinWidth = 68;
+            TextBlock txtToggleCalWidget = new TextBlock
+            {
+                Text = showCalendarWidget ? "✓ Açık" : "Kapalı",
+                Foreground = HexBrush(showCalendarWidget ? "#FAF6F2" : "#8E7F74"),
+                FontSize = 11,
+                FontWeight = FontWeights.Bold
+            };
+            btnToggleCalWidget.Content = txtToggleCalWidget;
+            btnToggleCalWidget.Click += (s, e) =>
+            {
+                SetCalendarWidgetVisible(!showCalendarWidget);
+                calCompanionCard.Background = HexBrush(showCalendarWidget ? "#2C221C" : "#1F1916");
+                calCompanionCard.BorderBrush = HexBrush(showCalendarWidget ? accentColorHex : "#3A2F29");
+                btnToggleCalWidget.Background = HexBrush(showCalendarWidget ? "#38281E" : "#221C18");
+                btnToggleCalWidget.BorderBrush = HexBrush(showCalendarWidget ? accentColorHex : "#3E322B");
+                txtToggleCalWidget.Text = showCalendarWidget ? "✓ Açık" : "Kapalı";
+                txtToggleCalWidget.Foreground = HexBrush(showCalendarWidget ? "#FAF6F2" : "#8E7F74");
+            };
+            Grid.SetColumn(btnToggleCalWidget, 1);
+            calCompanionTop.Children.Add(btnToggleCalWidget);
+            calCompanionStack.Children.Add(calCompanionTop);
+
+            Grid calIcalRow = new Grid { Margin = new Thickness(0, 6, 0, 0) };
+            calIcalRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            calIcalRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            TextBox txtIcalUrl = new TextBox
+            {
+                Text = string.IsNullOrEmpty(calendarSecretIcalUrl) ? "" : calendarSecretIcalUrl,
+                Background = HexBrush("#221B17"),
+                Foreground = HexBrush("#E6DDD6"),
+                BorderBrush = HexBrush("#3E322B"),
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(6, 3, 6, 3),
+                FontSize = 10.5,
+                ToolTip = "İsteğe bağlı: Telefondan anlık senkron için Google Takvim Ayarları -> 'iCal biçimindeki gizli adres' (.ics) linkini buraya yapıştırabilirsiniz"
+            };
+            Grid.SetColumn(txtIcalUrl, 0);
+            calIcalRow.Children.Add(txtIcalUrl);
+
+            Button btnSaveIcal = CreateStyledIconButton("#2E241E", "#4A3C34", "Gizli iCal (.ics) adresini kaydet ve senkronize et");
+            btnSaveIcal.Margin = new Thickness(5, 0, 0, 0);
+            btnSaveIcal.Padding = new Thickness(8, 3, 8, 3);
+            btnSaveIcal.Content = new TextBlock { Text = "🔗 iCal Kaydet", Foreground = HexBrush("#E6DDD6"), FontSize = 10, FontWeight = FontWeights.SemiBold };
+            btnSaveIcal.Click += (s, e) =>
+            {
+                calendarSecretIcalUrl = txtIcalUrl.Text.Trim();
+                SaveSettings();
+                Task.Run(() => LoadAndSyncCalendarEventsAsync(true));
+                ShowToast("Google Takvim bağlantısı kaydedildi ve yenileniyor...");
+            };
+            Grid.SetColumn(btnSaveIcal, 1);
+            calIcalRow.Children.Add(btnSaveIcal);
+            calCompanionStack.Children.Add(calIcalRow);
+
+            calCompanionCard.Child = calCompanionStack;
+            tabLayoutPanel.Children.Add(calCompanionCard);
+
             tabLayoutPanel.Children.Add(new TextBlock
             {
                 Text = "Modül Sıralaması & Görünürlük (Tut-Sürükle veya ▲/▼ ile Sırala)",
@@ -5354,6 +5577,1129 @@ namespace OpenWidget
                 toastTimer.Stop();
                 toastTimer.Start();
             });
+        }
+
+        // =========================================================================
+        // STANDALONE APPLE-STYLE GOOGLE CALENDAR DESKTOP WIDGET (SEPARATE WINDOW)
+        // =========================================================================
+        public void SetCalendarWidgetVisible(bool visible)
+        {
+            showCalendarWidget = visible;
+            SaveSettings();
+            if (trayCalendarItem != null)
+            {
+                trayCalendarItem.Text = showCalendarWidget ? "📅 Google Takvim Widget'ını Gizle" : "📅 Google Takvim Widget'ını Göster";
+            }
+            if (calendarWindow == null && showCalendarWidget)
+            {
+                InitializeCalendarWidget();
+                return;
+            }
+            if (calendarWindow != null)
+            {
+                if (showCalendarWidget)
+                {
+                    calendarWindow.Show();
+                    IntPtr calHwnd = new WindowInteropHelper(calendarWindow).Handle;
+                    if (calHwnd != IntPtr.Zero) SendWidgetToDesktopBottom(calHwnd);
+                    RefreshCalendarWidgetUi();
+                }
+                else
+                {
+                    calendarWindow.Hide();
+                }
+            }
+        }
+
+        private void InitializeCalendarWidget()
+        {
+            if (calendarWindow != null) return;
+
+            calendarWindow = new Window
+            {
+                Title = "OpenWidget • Google Takvim",
+                MinWidth = 390,
+                MinHeight = 215,
+                Width = savedCalWidth,
+                Height = savedCalHeight,
+                WindowStyle = WindowStyle.None,
+                AllowsTransparency = true,
+                Background = Brushes.Transparent,
+                ResizeMode = isDraggable ? ResizeMode.CanResize : ResizeMode.NoResize,
+                ShowInTaskbar = false,
+                Topmost = false,
+                UseLayoutRounding = true,
+                SnapsToDevicePixels = true,
+                FontFamily = new FontFamily("Segoe UI")
+            };
+            TryApplyWindowIcon(calendarWindow);
+            TextOptions.SetTextFormattingMode(calendarWindow, TextFormattingMode.Display);
+            TextOptions.SetTextRenderingMode(calendarWindow, TextRenderingMode.ClearType);
+            RenderOptions.SetClearTypeHint(calendarWindow, ClearTypeHint.Enabled);
+
+            var workArea = SystemParameters.WorkArea;
+            if (!double.IsNaN(savedCalLeft) && !double.IsNaN(savedCalTop) &&
+                savedCalLeft >= workArea.Left - 150 && savedCalLeft <= workArea.Right - 100 &&
+                savedCalTop >= workArea.Top - 50 && savedCalTop <= workArea.Bottom - 100)
+            {
+                calendarWindow.Left = savedCalLeft;
+                calendarWindow.Top = savedCalTop;
+            }
+            else
+            {
+                double defaultLeft = this.Left - savedCalWidth - 10;
+                if (defaultLeft < workArea.Left + 10) defaultLeft = workArea.Left + 14;
+                calendarWindow.Left = defaultLeft;
+                calendarWindow.Top = this.Top;
+                savedCalLeft = calendarWindow.Left;
+                savedCalTop = calendarWindow.Top;
+            }
+
+            calWindowChrome = new WindowChrome
+            {
+                CaptionHeight = 0,
+                CornerRadius = new CornerRadius(0),
+                GlassFrameThickness = new Thickness(0),
+                NonClientFrameEdges = NonClientFrameEdges.None,
+                ResizeBorderThickness = isDraggable ? new Thickness(8) : new Thickness(0)
+            };
+            WindowChrome.SetWindowChrome(calendarWindow, calWindowChrome);
+
+            calendarWindow.SizeChanged += (s, e) =>
+            {
+                if (calendarWindow.ActualWidth >= 380 && calendarWindow.ActualHeight >= 210)
+                {
+                    savedCalWidth = calendarWindow.ActualWidth;
+                    savedCalHeight = calendarWindow.ActualHeight;
+                    if (isWindowInitialized) SaveSettings();
+                }
+            };
+
+            calendarWindow.PreviewMouseLeftButtonDown += (s, e) =>
+            {
+                if (!isDraggable) return;
+                DependencyObject dep = e.OriginalSource as DependencyObject;
+                while (dep != null && dep != calendarWindow)
+                {
+                    if (dep is ButtonBase || dep is Slider || dep is Thumb || dep is TextBox || dep is ScrollBar)
+                        return;
+                    if (dep is FrameworkElement)
+                    {
+                        FrameworkElement fe = (FrameworkElement)dep;
+                        if (fe.Tag != null && fe.Tag.ToString() == "Interactive") return;
+                    }
+                    dep = VisualTreeHelper.GetParent(dep);
+                }
+                try
+                {
+                    IntPtr calHwnd = new WindowInteropHelper(calendarWindow).Handle;
+                    ReleaseCapture();
+                    SendMessage(calHwnd, WM_NCLBUTTONDOWN, (IntPtr)HT_CAPTION, IntPtr.Zero);
+                    savedCalLeft = calendarWindow.Left;
+                    savedCalTop = calendarWindow.Top;
+                    SaveSettings();
+                    e.Handled = true;
+                }
+                catch { }
+            };
+
+            calendarWindow.Loaded += (s, e) =>
+            {
+                IntPtr calHwnd = new WindowInteropHelper(calendarWindow).Handle;
+                int exStyle = GetWindowLong(calHwnd, GWL_EXSTYLE);
+                SetWindowLong(calHwnd, GWL_EXSTYLE, exStyle | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE);
+                AttachToDesktopShell(calHwnd);
+                HwndSource src = HwndSource.FromHwnd(calHwnd);
+                if (src != null) src.AddHook(WndProc);
+            };
+
+            calendarWindow.StateChanged += (s, e) =>
+            {
+                if (calendarWindow.WindowState == WindowState.Minimized)
+                    calendarWindow.WindowState = WindowState.Normal;
+            };
+
+            BuildCalendarWidgetUi();
+            ApplyCalendarWidgetTheme();
+
+            if (showCalendarWidget)
+            {
+                calendarWindow.Show();
+            }
+
+            Task.Run(() => LoadAndSyncCalendarEventsAsync(false));
+
+            // Refresh calendar every 5 minutes and at minute boundaries for live countdowns
+            DispatcherTimer calUiTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(45) };
+            int calTick = 0;
+            calUiTimer.Tick += (s, e) =>
+            {
+                calTick++;
+                if (showCalendarWidget) RefreshCalendarWidgetUi();
+                if (calTick % 7 == 0)
+                {
+                    Task.Run(() => LoadAndSyncCalendarEventsAsync(false));
+                }
+            };
+            calUiTimer.Start();
+        }
+
+        private void BuildCalendarWidgetUi()
+        {
+            calOuterBorder = new Border
+            {
+                CornerRadius = new CornerRadius(16),
+                BorderThickness = new Thickness(1),
+                Margin = new Thickness(4),
+                Padding = new Thickness(14, 12, 14, 12)
+            };
+            DropShadowEffect shadow = new DropShadowEffect
+            {
+                Color = Colors.Black,
+                BlurRadius = 14,
+                ShadowDepth = 2,
+                Opacity = 0.60
+            };
+            shadow.Freeze();
+            calOuterBorder.Effect = shadow;
+
+            Grid rootGrid = new Grid();
+
+            // Apple iOS Medium/Large Calendar Two-Pane Layout:
+            // Left Pane (182px): Big Day Name + Huge Date Number + Mini Monthly Calendar Grid with Event Dots
+            // Divider (1px)
+            // Right Pane (*): Selected Day / Today Schedule + "Sıradaki (Yarın)" Apple-style Pill Cards
+            Grid twoPaneGrid = new Grid();
+            twoPaneGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(182) });
+            twoPaneGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(14) });
+            twoPaneGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            // ==========================================
+            // LEFT PANE: APPLE CALENDAR DATE & MINI MONTH
+            // ==========================================
+            Grid leftPane = new Grid();
+            leftPane.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            leftPane.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            leftPane.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+
+            // Top Date Header: Day of Week (Accent) + Big Day Number + Month Navigation
+            Grid dateTopRow = new Grid { Margin = new Thickness(2, 0, 2, 6) };
+            dateTopRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            dateTopRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            StackPanel dateLeftStack = new StackPanel();
+            txtCalDayOfWeekHeader = new TextBlock
+            {
+                Text = "ÇARŞAMBA",
+                FontSize = 10.5,
+                FontWeight = FontWeights.Bold,
+                Foreground = HexBrush(accentColorHex)
+            };
+            dateLeftStack.Children.Add(txtCalDayOfWeekHeader);
+
+            StackPanel bigNumRow = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Bottom };
+            txtCalBigDayNum = new TextBlock
+            {
+                Text = DateTime.Now.Day.ToString(),
+                FontSize = 27,
+                FontWeight = FontWeights.Bold,
+                Foreground = HexBrush("#FAF6F2"),
+                Margin = new Thickness(0, -3, 7, -2)
+            };
+            txtCalMonthYearLabel = new TextBlock
+            {
+                Text = "Kasım 2026",
+                FontSize = 11,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = HexBrush("#B8A99E"),
+                VerticalAlignment = VerticalAlignment.Bottom,
+                Margin = new Thickness(0, 0, 0, 3)
+            };
+            bigNumRow.Children.Add(txtCalBigDayNum);
+            bigNumRow.Children.Add(txtCalMonthYearLabel);
+            dateLeftStack.Children.Add(bigNumRow);
+            Grid.SetColumn(dateLeftStack, 0);
+            dateTopRow.Children.Add(dateLeftStack);
+
+            // Month Prev / Today / Next mini buttons
+            StackPanel monthNavBtns = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Top };
+            Button btnPrevMonth = CreateStyledIconButton("#26201D", "Transparent", "Önceki Ay");
+            btnPrevMonth.Width = 20; btnPrevMonth.Height = 20;
+            btnPrevMonth.Content = new TextBlock { Text = "‹", Foreground = HexBrush("#C7B9AE"), FontSize = 13, FontWeight = FontWeights.Bold, Margin = new Thickness(0, -2, 0, 0) };
+            btnPrevMonth.Click += (s, e) =>
+            {
+                calDisplayedMonth = calDisplayedMonth.AddMonths(-1);
+                RefreshCalendarWidgetUi();
+            };
+
+            Button btnGoToday = CreateStyledIconButton("#26201D", "Transparent", "Bugüne Dön");
+            btnGoToday.Width = 20; btnGoToday.Height = 20;
+            btnGoToday.Margin = new Thickness(2, 0, 2, 0);
+            btnGoToday.Content = new TextBlock { Text = "•", Foreground = HexBrush(accentColorHex), FontSize = 13, FontWeight = FontWeights.Bold, Margin = new Thickness(0, -2, 0, 0) };
+            btnGoToday.Click += (s, e) =>
+            {
+                calSelectedDate = DateTime.Today;
+                calDisplayedMonth = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
+                RefreshCalendarWidgetUi();
+            };
+
+            Button btnNextMonth = CreateStyledIconButton("#26201D", "Transparent", "Sonraki Ay");
+            btnNextMonth.Width = 20; btnNextMonth.Height = 20;
+            btnNextMonth.Content = new TextBlock { Text = "›", Foreground = HexBrush("#C7B9AE"), FontSize = 13, FontWeight = FontWeights.Bold, Margin = new Thickness(0, -2, 0, 0) };
+            btnNextMonth.Click += (s, e) =>
+            {
+                calDisplayedMonth = calDisplayedMonth.AddMonths(1);
+                RefreshCalendarWidgetUi();
+            };
+
+            monthNavBtns.Children.Add(btnPrevMonth);
+            monthNavBtns.Children.Add(btnGoToday);
+            monthNavBtns.Children.Add(btnNextMonth);
+            Grid.SetColumn(monthNavBtns, 1);
+            dateTopRow.Children.Add(monthNavBtns);
+            Grid.SetRow(dateTopRow, 0);
+            leftPane.Children.Add(dateTopRow);
+
+            // Weekday Headers: Pzt Sal Çar Per Cum Cmt Paz
+            UniformGrid weekDayHdr = new UniformGrid { Columns = 7, Margin = new Thickness(0, 0, 0, 3) };
+            string[] shortDays = { "P", "S", "Ç", "P", "C", "C", "P" };
+            for (int i = 0; i < 7; i++)
+            {
+                weekDayHdr.Children.Add(new TextBlock
+                {
+                    Text = shortDays[i],
+                    Foreground = HexBrush(i >= 5 ? "#8C7A6B" : "#A8988C"),
+                    FontSize = 9.5,
+                    FontWeight = FontWeights.Bold,
+                    HorizontalAlignment = HorizontalAlignment.Center
+                });
+            }
+            Grid.SetRow(weekDayHdr, 1);
+            leftPane.Children.Add(weekDayHdr);
+
+            // 6x7 Mini Month Day Cells
+            calMiniMonthGrid = new UniformGrid { Columns = 7, Rows = 6 };
+            Grid.SetRow(calMiniMonthGrid, 2);
+            leftPane.Children.Add(calMiniMonthGrid);
+
+            Grid.SetColumn(leftPane, 0);
+            twoPaneGrid.Children.Add(leftPane);
+
+            // Vertical Hairline Divider
+            Border vDivider = new Border
+            {
+                Width = 1,
+                Background = HexBrush("#3B302A"),
+                Margin = new Thickness(6, 2, 6, 2)
+            };
+            Grid.SetColumn(vDivider, 1);
+            twoPaneGrid.Children.Add(vDivider);
+
+            // ==========================================
+            // RIGHT PANE: SCHEDULE & APPLE PILL CARDS
+            // ==========================================
+            Grid rightPane = new Grid();
+            rightPane.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            rightPane.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            rightPane.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+
+            // Right Header: Selected Date Schedule Label + Quick Action Buttons (+, Refresh, Open Web, Lock)
+            Grid rightHeader = new Grid { Margin = new Thickness(0, 0, 0, 6) };
+            rightHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            rightHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            txtCalRightScheduleTitle = new TextBlock
+            {
+                Text = "BUGÜN • DERS & ETKİNLİKLER",
+                Foreground = HexBrush("#C7B9AE"),
+                FontSize = 10.5,
+                FontWeight = FontWeights.Bold,
+                VerticalAlignment = VerticalAlignment.Center,
+                TextTrimming = TextTrimming.CharacterEllipsis
+            };
+            Grid.SetColumn(txtCalRightScheduleTitle, 0);
+            rightHeader.Children.Add(txtCalRightScheduleTitle);
+
+            StackPanel rightBtns = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+
+            Button btnQuickAdd = CreateStyledIconButton("#26201D", "Transparent", "Hızlı Etkinlik / Hatırlatıcı Ekle");
+            btnQuickAdd.Width = 22; btnQuickAdd.Height = 22;
+            btnQuickAdd.Margin = new Thickness(0, 0, 3, 0);
+            btnQuickAdd.Content = new TextBlock { Text = "+", Foreground = HexBrush(accentColorHex), FontSize = 13, FontWeight = FontWeights.Bold, Margin = new Thickness(0, -2, 0, 0) };
+            btnQuickAdd.Click += (s, e) =>
+            {
+                calQuickAddPanel.Visibility = (calQuickAddPanel.Visibility == Visibility.Visible) ? Visibility.Collapsed : Visibility.Visible;
+            };
+            rightBtns.Children.Add(btnQuickAdd);
+
+            Button btnSyncCal = CreateStyledIconButton("#26201D", "Transparent", "Google Takvim'i Şimdi Senkronize Et");
+            btnSyncCal.Width = 22; btnSyncCal.Height = 22;
+            btnSyncCal.Margin = new Thickness(0, 0, 3, 0);
+            btnSyncCal.Content = new TextBlock { Text = "↻", Foreground = HexBrush("#C7B9AE"), FontSize = 11.5, FontWeight = FontWeights.Bold };
+            btnSyncCal.Click += (s, e) =>
+            {
+                Task.Run(() => LoadAndSyncCalendarEventsAsync(true));
+            };
+            rightBtns.Children.Add(btnSyncCal);
+
+            Button btnOpenGCalWeb = CreateStyledIconButton("#26201D", "Transparent", "Google Takvim'i Tarayıcıda Aç (safaacikgoz43@gmail.com)");
+            btnOpenGCalWeb.Width = 22; btnOpenGCalWeb.Height = 22;
+            btnOpenGCalWeb.Margin = new Thickness(0, 0, 3, 0);
+            btnOpenGCalWeb.Content = new TextBlock { Text = "📅", Foreground = HexBrush("#C7B9AE"), FontSize = 10.5 };
+            btnOpenGCalWeb.Click += (s, e) =>
+            {
+                try { Process.Start("https://calendar.google.com/calendar/u/0/r"); } catch { }
+            };
+            rightBtns.Children.Add(btnOpenGCalWeb);
+
+            btnCalLockDrag = CreateStyledIconButton("#26201D", "Transparent", "Taşıma ve Boyutlandırma Kilidi");
+            btnCalLockDrag.Width = 22; btnCalLockDrag.Height = 22;
+            btnCalLockDrag.Click += (s, e) => ToggleDraggableMode();
+            rightBtns.Children.Add(btnCalLockDrag);
+
+            Grid.SetColumn(rightBtns, 1);
+            rightHeader.Children.Add(rightBtns);
+            Grid.SetRow(rightHeader, 0);
+            rightPane.Children.Add(rightHeader);
+
+            // Collapsible Quick-Add Event Row
+            calQuickAddPanel = new Border
+            {
+                Visibility = Visibility.Collapsed,
+                CornerRadius = new CornerRadius(8),
+                Background = HexBrush("#261E1A"),
+                BorderBrush = HexBrush("#4A3C34"),
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(7, 5, 7, 5),
+                Margin = new Thickness(0, 0, 0, 6),
+                Tag = "Interactive"
+            };
+            Grid qaGrid = new Grid();
+            qaGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(68) });
+            qaGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            qaGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            txtCalQuickTime = new TextBox
+            {
+                Text = "14:00",
+                Background = HexBrush("#1C1613"),
+                Foreground = HexBrush("#FAF6F2"),
+                BorderBrush = HexBrush("#3E322B"),
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(4, 2, 4, 2),
+                FontSize = 10.5,
+                Margin = new Thickness(0, 0, 4, 0),
+                ToolTip = "Saat (Örn: 14:00 veya 09:30-11:00)"
+            };
+            Grid.SetColumn(txtCalQuickTime, 0);
+            qaGrid.Children.Add(txtCalQuickTime);
+
+            txtCalQuickTitle = new TextBox
+            {
+                Text = "",
+                Background = HexBrush("#1C1613"),
+                Foreground = HexBrush("#FAF6F2"),
+                BorderBrush = HexBrush("#3E322B"),
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(5, 2, 5, 2),
+                FontSize = 10.5,
+                Margin = new Thickness(0, 0, 4, 0),
+                ToolTip = "Etkinlik başlığı yazın (Örn: Sınav, Toplantı, Ödev)"
+            };
+            txtCalQuickLoc = new TextBox { Text = "" };
+            Grid.SetColumn(txtCalQuickTitle, 1);
+            qaGrid.Children.Add(txtCalQuickTitle);
+
+            Button btnSaveQuickEvent = CreateStyledIconButton("#38281E", accentColorHex, "Seçili güne etkinlik ekle");
+            btnSaveQuickEvent.Padding = new Thickness(8, 2, 8, 2);
+            btnSaveQuickEvent.Content = new TextBlock { Text = "Ekle", Foreground = HexBrush("#FAF6F2"), FontSize = 10, FontWeight = FontWeights.Bold };
+            btnSaveQuickEvent.Click += (s, e) => AddCustomCalendarEventFromUi();
+            Grid.SetColumn(btnSaveQuickEvent, 2);
+            qaGrid.Children.Add(btnSaveQuickEvent);
+
+            calQuickAddPanel.Child = qaGrid;
+            Grid.SetRow(calQuickAddPanel, 1);
+            rightPane.Children.Add(calQuickAddPanel);
+
+            // Scrollable Events Stack
+            ScrollViewer evScroll = new ScrollViewer
+            {
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                PanningMode = PanningMode.VerticalOnly
+            };
+            calEventsListPanel = new StackPanel();
+            evScroll.Content = calEventsListPanel;
+            Grid.SetRow(evScroll, 2);
+            rightPane.Children.Add(evScroll);
+
+            Grid.SetColumn(rightPane, 2);
+            twoPaneGrid.Children.Add(rightPane);
+
+            rootGrid.Children.Add(twoPaneGrid);
+
+            calResizeGrip = new Border
+            {
+                Width = 12,
+                Height = 12,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Bottom,
+                Margin = new Thickness(0, 0, -8, -6),
+                Visibility = isDraggable ? Visibility.Visible : Visibility.Collapsed,
+                Child = new TextBlock { Text = "◢", FontSize = 9, Foreground = HexBrush("#8C7A6B") }
+            };
+            rootGrid.Children.Add(calResizeGrip);
+
+            calOuterBorder.Child = rootGrid;
+            calendarWindow.Content = calOuterBorder;
+            UpdateDraggableButtonUi();
+        }
+
+        private void ApplyCalendarWidgetTheme()
+        {
+            if (calOuterBorder == null) return;
+            try
+            {
+                Color accent = ParseColor(accentColorHex);
+                byte mainAlpha = (byte)Math.Round((bgOpacityPercent / 100.0) * 255.0);
+                Color darkTop = BlendColors(Color.FromRgb(22, 19, 17), accent, 0.08, mainAlpha);
+                Color darkBottom = BlendColors(Color.FromRgb(28, 24, 21), accent, 0.12, mainAlpha);
+                Color outerBorderCol = BlendColors(Color.FromRgb(56, 48, 42), accent, 0.35, 220);
+
+                LinearGradientBrush grad = new LinearGradientBrush(darkTop, darkBottom, new Point(0, 0), new Point(0, 1));
+                grad.Freeze();
+                calOuterBorder.Background = grad;
+
+                SolidColorBrush ob = new SolidColorBrush(outerBorderCol);
+                ob.Freeze();
+                calOuterBorder.BorderBrush = ob;
+
+                if (txtCalDayOfWeekHeader != null)
+                    txtCalDayOfWeekHeader.Foreground = HexBrush(accentColorHex);
+
+                RefreshCalendarWidgetUi();
+            }
+            catch { }
+        }
+
+        private void RefreshCalendarWidgetUi()
+        {
+            if (calendarWindow == null || calMiniMonthGrid == null || calEventsListPanel == null) return;
+            try
+            {
+                string[] trDayNamesUpper = { "PAZAR", "PAZARTESİ", "SALI", "ÇARŞAMBA", "PERŞEMBE", "CUMA", "CUMARTESİ" };
+                string[] trDayNamesShort = { "Paz", "Pzt", "Sal", "Çar", "Per", "Cum", "Cmt" };
+                string[] trMonthNames = { "", "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık" };
+
+                DateTime today = DateTime.Today;
+                DateTime headerDate = calSelectedDate.Date;
+
+                txtCalDayOfWeekHeader.Text = trDayNamesUpper[(int)headerDate.DayOfWeek];
+                txtCalDayOfWeekHeader.Foreground = HexBrush(accentColorHex);
+                txtCalBigDayNum.Text = headerDate.Day.ToString();
+                txtCalMonthYearLabel.Text = trMonthNames[calDisplayedMonth.Month] + " " + calDisplayedMonth.Year;
+
+                List<CalendarEventItem> snapshot;
+                lock (calEventsLock)
+                {
+                    snapshot = new List<CalendarEventItem>(allCalendarEvents);
+                }
+
+                // 1. Rebuild 6x7 Mini Month Grid (Monday-first: Pzt=0 ... Paz=6)
+                calMiniMonthGrid.Children.Clear();
+                DateTime firstOfMonth = new DateTime(calDisplayedMonth.Year, calDisplayedMonth.Month, 1);
+                int firstDayOffset = ((int)firstOfMonth.DayOfWeek + 6) % 7; // Monday = 0, Sunday = 6
+                DateTime gridStart = firstOfMonth.AddDays(-firstDayOffset);
+
+                for (int cell = 0; cell < 42; cell++)
+                {
+                    DateTime cellDate = gridStart.AddDays(cell).Date;
+                    bool isCurrentMonth = (cellDate.Month == calDisplayedMonth.Month);
+                    bool isToday = (cellDate == today);
+                    bool isSelected = (cellDate == calSelectedDate.Date);
+
+                    bool hasPrimaryEvent = false;
+                    bool hasHolidayEvent = false;
+                    for (int k = 0; k < snapshot.Count; k++)
+                    {
+                        CalendarEventItem ev = snapshot[k];
+                        if (DoesEventOccurOnDate(ev, cellDate))
+                        {
+                            if (ev.Source == "holiday") hasHolidayEvent = true;
+                            else hasPrimaryEvent = true;
+                        }
+                    }
+
+                    Border dayCell = new Border
+                    {
+                        Width = 22,
+                        Height = 22,
+                        CornerRadius = new CornerRadius(11),
+                        Background = isToday
+                            ? HexBrush(accentColorHex)
+                            : (isSelected ? HexBrush("#38281E") : Brushes.Transparent),
+                        BorderBrush = (!isToday && isSelected) ? HexBrush(accentColorHex) : Brushes.Transparent,
+                        BorderThickness = new Thickness(!isToday && isSelected ? 1.2 : 0),
+                        Cursor = Cursors.Hand,
+                        Tag = "Interactive",
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        VerticalAlignment = VerticalAlignment.Center
+                    };
+
+                    StackPanel cellStack = new StackPanel
+                    {
+                        VerticalAlignment = VerticalAlignment.Center,
+                        HorizontalAlignment = HorizontalAlignment.Center
+                    };
+
+                    TextBlock txtNum = new TextBlock
+                    {
+                        Text = cellDate.Day.ToString(),
+                        FontSize = 9.5,
+                        FontWeight = (isToday || isSelected) ? FontWeights.Bold : FontWeights.Medium,
+                        Foreground = isToday
+                            ? Brushes.White
+                            : (isCurrentMonth ? HexBrush("#FAF6F2") : HexBrush("#5E5047")),
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        Margin = new Thickness(0, -1, 0, 0)
+                    };
+                    cellStack.Children.Add(txtNum);
+
+                    if (hasPrimaryEvent || hasHolidayEvent)
+                    {
+                        Border dot = new Border
+                        {
+                            Width = 3.5,
+                            Height = 3.5,
+                            CornerRadius = new CornerRadius(2),
+                            Background = isToday
+                                ? Brushes.White
+                                : HexBrush(hasPrimaryEvent ? accentColorHex : "#9A9CFF"),
+                            HorizontalAlignment = HorizontalAlignment.Center,
+                            Margin = new Thickness(0, 0.5, 0, 0)
+                        };
+                        cellStack.Children.Add(dot);
+                    }
+
+                    dayCell.Child = cellStack;
+                    DateTime capturedDate = cellDate;
+                    dayCell.MouseLeftButtonDown += (s, e) =>
+                    {
+                        calSelectedDate = capturedDate;
+                        if (capturedDate.Month != calDisplayedMonth.Month || capturedDate.Year != calDisplayedMonth.Year)
+                        {
+                            calDisplayedMonth = new DateTime(capturedDate.Year, capturedDate.Month, 1);
+                        }
+                        RefreshCalendarWidgetUi();
+                        e.Handled = true;
+                    };
+
+                    calMiniMonthGrid.Children.Add(dayCell);
+                }
+
+                // 2. Rebuild Right Pane Event Pill Cards
+                calEventsListPanel.Children.Clear();
+                List<CalendarEventItem> dayEvents = GetEventsForDate(snapshot, calSelectedDate.Date);
+
+                bool isViewingToday = (calSelectedDate.Date == today);
+                if (isViewingToday)
+                {
+                    txtCalRightScheduleTitle.Text = string.Format("BUGÜN • {0} {1} ({2})", today.Day, trMonthNames[today.Month].ToUpperInvariant(), dayEvents.Count > 0 ? (dayEvents.Count + " ETKİNLİK") : "BOŞ");
+                }
+                else
+                {
+                    txtCalRightScheduleTitle.Text = string.Format("{0} {1} {2} • {3} ETKİNLİK",
+                        calSelectedDate.Day,
+                        trMonthNames[calSelectedDate.Month].ToUpperInvariant(),
+                        trDayNamesShort[(int)calSelectedDate.DayOfWeek].ToUpperInvariant(),
+                        dayEvents.Count);
+                }
+
+                DateTime now = DateTime.Now;
+                if (dayEvents.Count == 0)
+                {
+                    Border emptyBox = new Border
+                    {
+                        CornerRadius = new CornerRadius(8),
+                        Background = HexBrush("#4426201D"),
+                        BorderBrush = HexBrush("#382E28"),
+                        BorderThickness = new Thickness(1),
+                        Padding = new Thickness(10, 7, 10, 7),
+                        Margin = new Thickness(0, 0, 0, 6)
+                    };
+                    emptyBox.Child = new TextBlock
+                    {
+                        Text = isViewingToday ? "Bugün için planlanmış ders veya etkinlik yok." : "Bu tarihte kayıtlı etkinlik bulunmuyor.",
+                        Foreground = HexBrush("#9E8C7E"),
+                        FontSize = 11
+                    };
+                    calEventsListPanel.Children.Add(emptyBox);
+                }
+                else
+                {
+                    foreach (CalendarEventItem ev in dayEvents)
+                    {
+                        calEventsListPanel.Children.Add(CreateAppleCalendarEventPill(ev, now, isViewingToday));
+                    }
+                }
+
+                // 3. Just like iPhone Apple Calendar widget: if viewing Today, also show "SIRADAKİ (YARIN / YAKLAŞAN)" below!
+                if (isViewingToday)
+                {
+                    for (int ahead = 1; ahead <= 7; ahead++)
+                    {
+                        DateTime nextDate = today.AddDays(ahead);
+                        List<CalendarEventItem> nextEvents = GetEventsForDate(snapshot, nextDate);
+                        if (nextEvents.Count > 0)
+                        {
+                            string nextHdr = ahead == 1
+                                ? string.Format("SIRADAKİ • YARIN ({0} {1})", nextDate.Day, trMonthNames[nextDate.Month].ToUpperInvariant())
+                                : string.Format("SIRADAKİ • {0} {1} {2}", nextDate.Day, trMonthNames[nextDate.Month].ToUpperInvariant(), trDayNamesUpper[(int)nextDate.DayOfWeek]);
+
+                            calEventsListPanel.Children.Add(new TextBlock
+                            {
+                                Text = nextHdr,
+                                Foreground = HexBrush("#A8988C"),
+                                FontSize = 9.5,
+                                FontWeight = FontWeights.Bold,
+                                Margin = new Thickness(2, 5, 0, 4)
+                            });
+
+                            int shownNext = 0;
+                            foreach (CalendarEventItem nev in nextEvents)
+                            {
+                                calEventsListPanel.Children.Add(CreateAppleCalendarEventPill(nev, now, false));
+                                shownNext++;
+                                if (shownNext >= 3) break;
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+            catch { }
+        }
+
+        private UIElement CreateAppleCalendarEventPill(CalendarEventItem ev, DateTime now, bool isTodayCard)
+        {
+            bool isOngoing = !ev.AllDay && isTodayCard && now >= ev.Start && now <= ev.End;
+            bool isPastToday = !ev.AllDay && isTodayCard && now > ev.End;
+
+            string barHex = ev.Source == "holiday" ? "#9A9CFF" : (isOngoing ? accentColorHex : "#10B981");
+            if (ev.Source == "custom") barHex = accentColorHex;
+
+            Border card = new Border
+            {
+                CornerRadius = new CornerRadius(8),
+                Background = HexBrush(isOngoing ? "#AA382920" : "#8828211E"),
+                BorderBrush = HexBrush(isOngoing ? accentColorHex : "#443730"),
+                BorderThickness = new Thickness(isOngoing ? 1.2 : 1),
+                Padding = new Thickness(7, 5, 8, 5),
+                Margin = new Thickness(0, 0, 0, 5),
+                Opacity = isPastToday ? 0.62 : 1.0,
+                Cursor = Cursors.Hand,
+                Tag = "Interactive",
+                ToolTip = ev.Title + (string.IsNullOrEmpty(ev.Location) ? "" : ("\n📍 " + ev.Location)) + (string.IsNullOrEmpty(ev.Description) ? "" : ("\n👤 " + ev.Description))
+            };
+
+            Grid g = new Grid();
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            // Left Vertical Color Pill Bar (Signature Apple Calendar Widget look)
+            Border colorBar = new Border
+            {
+                Width = 3.5,
+                CornerRadius = new CornerRadius(2),
+                Background = HexBrush(barHex),
+                Margin = new Thickness(0, 1, 8, 1)
+            };
+            Grid.SetColumn(colorBar, 0);
+            g.Children.Add(colorBar);
+
+            StackPanel infoStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+
+            // Row 1: Event Title + Status/Time Badge
+            Grid titleRow = new Grid();
+            titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            TextBlock txtTitle = new TextBlock
+            {
+                Text = ev.Title,
+                Foreground = HexBrush("#FAF6F2"),
+                FontSize = 11.5,
+                FontWeight = FontWeights.Bold,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                Margin = new Thickness(0, 0, 6, 0)
+            };
+            Grid.SetColumn(txtTitle, 0);
+            titleRow.Children.Add(txtTitle);
+
+            string timeBadgeText = ev.AllDay
+                ? "Tüm Gün"
+                : (ev.Start.ToString("HH:mm") + " – " + ev.End.ToString("HH:mm"));
+            if (isOngoing) timeBadgeText = "● ŞİMDİ (" + ev.End.ToString("HH:mm") + "'e kadar)";
+
+            TextBlock txtTime = new TextBlock
+            {
+                Text = timeBadgeText,
+                Foreground = HexBrush(isOngoing ? accentColorHex : "#C7B9AE"),
+                FontSize = 10,
+                FontWeight = FontWeights.SemiBold,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(txtTime, 1);
+            titleRow.Children.Add(txtTime);
+            infoStack.Children.Add(titleRow);
+
+            // Row 2: Location & Instructor / Subtitle
+            string subLine = "";
+            if (!string.IsNullOrEmpty(ev.Location)) subLine += "📍 " + ev.Location;
+            if (!string.IsNullOrEmpty(ev.Description) && !ev.Description.StartsWith("Bunun gibi otomatik"))
+            {
+                if (subLine.Length > 0) subLine += "  •  ";
+                subLine += ev.Description;
+            }
+            if (!string.IsNullOrEmpty(subLine))
+            {
+                infoStack.Children.Add(new TextBlock
+                {
+                    Text = subLine,
+                    Foreground = HexBrush("#9E8E82"),
+                    FontSize = 10,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    Margin = new Thickness(0, 1.5, 0, 0)
+                });
+            }
+
+            Grid.SetColumn(infoStack, 1);
+            g.Children.Add(infoStack);
+
+            if (ev.Source == "custom" && !string.IsNullOrEmpty(ev.RawCustomLine))
+            {
+                string rawToRemove = ev.RawCustomLine;
+                Button btnDel = CreateStyledIconButton("Transparent", "Transparent", "Bu özel etkinliği sil");
+                btnDel.Padding = new Thickness(4, 0, 2, 0);
+                btnDel.Content = new TextBlock { Text = "✕", Foreground = HexBrush("#8C7A6B"), FontSize = 9.5 };
+                btnDel.Click += (s, e) =>
+                {
+                    RemoveCustomCalendarEvent(rawToRemove);
+                    e.Handled = true;
+                };
+                Grid.SetColumn(btnDel, 2);
+                g.Children.Add(btnDel);
+            }
+
+            card.Child = g;
+            card.MouseEnter += (s, e) => card.Background = HexBrush("#BB382D27");
+            card.MouseLeave += (s, e) => card.Background = HexBrush(isOngoing ? "#AA382920" : "#8828211E");
+            card.MouseLeftButtonDown += (s, e) =>
+            {
+                if (!string.IsNullOrEmpty(ev.HtmlLink))
+                {
+                    try { Process.Start(ev.HtmlLink); } catch { }
+                }
+                else
+                {
+                    ShowToast(ev.Title + (string.IsNullOrEmpty(ev.Location) ? "" : (" • " + ev.Location)));
+                }
+            };
+
+            return card;
+        }
+
+        private bool DoesEventOccurOnDate(CalendarEventItem ev, DateTime date)
+        {
+            DateTime d = date.Date;
+            if (ev.AllDay)
+            {
+                DateTime s = ev.Start.Date;
+                DateTime e = ev.End.Date;
+                if (e <= s) e = s.AddDays(1);
+                return d >= s && d < e;
+            }
+            return ev.Start.Date == d;
+        }
+
+        private List<CalendarEventItem> GetEventsForDate(List<CalendarEventItem> all, DateTime date)
+        {
+            List<CalendarEventItem> list = new List<CalendarEventItem>();
+            foreach (var ev in all)
+            {
+                if (DoesEventOccurOnDate(ev, date))
+                    list.Add(ev);
+            }
+            list.Sort((a, b) =>
+            {
+                if (a.AllDay != b.AllDay) return a.AllDay ? -1 : 1;
+                return a.Start.CompareTo(b.Start);
+            });
+            return list;
+        }
+
+        private void AddCustomCalendarEventFromUi()
+        {
+            try
+            {
+                string title = txtCalQuickTitle.Text.Trim();
+                if (string.IsNullOrEmpty(title))
+                {
+                    ShowToast("Lütfen etkinlik başlığı girin");
+                    return;
+                }
+                string timePart = txtCalQuickTime.Text.Trim();
+                DateTime startDt = calSelectedDate.Date.AddHours(12);
+                DateTime endDt = startDt.AddHours(1);
+                bool allDay = false;
+
+                if (string.IsNullOrEmpty(timePart) || timePart.Equals("tüm gün", StringComparison.OrdinalIgnoreCase))
+                {
+                    allDay = true;
+                    startDt = calSelectedDate.Date;
+                    endDt = startDt.AddDays(1);
+                }
+                else
+                {
+                    string[] rangeParts = timePart.Split(new char[] { '-', '–' }, StringSplitOptions.RemoveEmptyEntries);
+                    TimeSpan ts1;
+                    if (rangeParts.Length >= 1 && TimeSpan.TryParse(rangeParts[0].Trim(), out ts1))
+                    {
+                        startDt = calSelectedDate.Date.Add(ts1);
+                        endDt = startDt.AddHours(1);
+                    }
+                    TimeSpan ts2;
+                    if (rangeParts.Length >= 2 && TimeSpan.TryParse(rangeParts[1].Trim(), out ts2))
+                    {
+                        endDt = calSelectedDate.Date.Add(ts2);
+                    }
+                }
+
+                string customFile = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "custom_events.dat");
+                string cleanTitle = title.Replace("|", "/");
+                string line = string.Format("{0}|{1}|{2}|custom|{3}|{4}|||https://calendar.google.com",
+                    allDay ? startDt.ToString("yyyy-MM-dd") : startDt.ToString("yyyy-MM-ddTHH:mm:ss"),
+                    allDay ? endDt.ToString("yyyy-MM-dd") : endDt.ToString("yyyy-MM-ddTHH:mm:ss"),
+                    allDay ? "True" : "False",
+                    accentColorHex,
+                    cleanTitle);
+
+                File.AppendAllLines(customFile, new string[] { line }, new UTF8Encoding(false));
+                txtCalQuickTitle.Text = "";
+                calQuickAddPanel.Visibility = Visibility.Collapsed;
+                Task.Run(() => LoadAndSyncCalendarEventsAsync(false));
+                ShowToast("Etkinlik takvime eklendi: " + cleanTitle);
+            }
+            catch { }
+        }
+
+        private void RemoveCustomCalendarEvent(string rawLine)
+        {
+            try
+            {
+                string customFile = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "custom_events.dat");
+                if (File.Exists(customFile))
+                {
+                    List<string> kept = new List<string>();
+                    foreach (string l in File.ReadAllLines(customFile, Encoding.UTF8))
+                    {
+                        if (l.Trim() != rawLine.Trim()) kept.Add(l);
+                    }
+                    File.WriteAllLines(customFile, kept.ToArray(), new UTF8Encoding(false));
+                }
+                Task.Run(() => LoadAndSyncCalendarEventsAsync(false));
+                ShowToast("Etkinlik silindi");
+            }
+            catch { }
+        }
+
+        private void LoadAndSyncCalendarEventsAsync(bool showToastOnDone)
+        {
+            try
+            {
+                List<CalendarEventItem> loaded = new List<CalendarEventItem>();
+
+                // 1. Load pre-synced Google Calendar events (safaacikgoz43@gmail.com + Holidays) from calendar_events.dat
+                string datPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "calendar_events.dat");
+                if (File.Exists(datPath))
+                {
+                    foreach (string line in File.ReadAllLines(datPath, Encoding.UTF8))
+                    {
+                        CalendarEventItem item = ParsePipeEventLine(line, false);
+                        if (item != null) loaded.Add(item);
+                    }
+                }
+
+                // 2. Load user's custom quick-added desktop events from custom_events.dat
+                string customPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "custom_events.dat");
+                if (File.Exists(customPath))
+                {
+                    foreach (string line in File.ReadAllLines(customPath, Encoding.UTF8))
+                    {
+                        CalendarEventItem item = ParsePipeEventLine(line, true);
+                        if (item != null) loaded.Add(item);
+                    }
+                }
+
+                // 3. If user configured a live Google Calendar Secret iCal (.ics) URL, fetch & merge live!
+                if (!string.IsNullOrEmpty(calendarSecretIcalUrl) && calendarSecretIcalUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+                {
+                    try
+                    {
+                        ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
+                        HttpWebRequest req = (HttpWebRequest)WebRequest.Create(calendarSecretIcalUrl);
+                        req.Timeout = 7000;
+                        req.UserAgent = "OpenWidgetCalendar/2.1";
+                        using (HttpWebResponse resp = (HttpWebResponse)req.GetResponse())
+                        using (StreamReader reader = new StreamReader(resp.GetResponseStream(), Encoding.UTF8))
+                        {
+                            string icsContent = reader.ReadToEnd();
+                            List<CalendarEventItem> icsItems = ParseIcsContent(icsContent, "primary", "#10B981");
+                            if (icsItems.Count > 0)
+                            {
+                                loaded.RemoveAll(x => x.Source == "primary");
+                                loaded.AddRange(icsItems);
+                            }
+                        }
+                    }
+                    catch { }
+                }
+
+                lock (calEventsLock)
+                {
+                    allCalendarEvents.Clear();
+                    allCalendarEvents.AddRange(loaded);
+                }
+
+                Dispatcher.Invoke(() =>
+                {
+                    RefreshCalendarWidgetUi();
+                    if (showToastOnDone)
+                        ShowToast("Google Takvim senkronize edildi (" + loaded.Count + " etkinlik)");
+                });
+            }
+            catch { }
+        }
+
+        private CalendarEventItem ParsePipeEventLine(string line, bool isCustom)
+        {
+            if (string.IsNullOrWhiteSpace(line)) return null;
+            string[] p = line.Split('|');
+            if (p.Length < 6) return null;
+
+            DateTime startDt, endDt;
+            if (!DateTime.TryParse(p[0], System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out startDt))
+                return null;
+            if (!DateTime.TryParse(p[1], System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out endDt))
+                endDt = startDt.AddHours(1);
+
+            bool allDay = p[2].Equals("True", StringComparison.OrdinalIgnoreCase);
+            return new CalendarEventItem
+            {
+                Start = startDt.ToLocalTime(),
+                End = endDt.ToLocalTime(),
+                AllDay = allDay,
+                Source = isCustom ? "custom" : p[3],
+                ColorHex = string.IsNullOrEmpty(p[4]) ? "#10B981" : p[4],
+                Title = p[5],
+                Location = p.Length > 6 ? p[6] : "",
+                Description = p.Length > 7 ? p[7] : "",
+                HtmlLink = p.Length > 8 ? p[8] : "",
+                RawCustomLine = isCustom ? line : null
+            };
+        }
+
+        private List<CalendarEventItem> ParseIcsContent(string ics, string sourceTag, string defaultColor)
+        {
+            List<CalendarEventItem> results = new List<CalendarEventItem>();
+            if (string.IsNullOrEmpty(ics)) return results;
+
+            // Unfold RFC 5545 multi-line fields
+            string unfolded = ics.Replace("\r\n ", "").Replace("\r\n\t", "").Replace("\n ", "").Replace("\n\t", "");
+            string[] lines = unfolded.Split(new char[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+
+            bool inEvent = false;
+            string summary = "", location = "", desc = "", dtStartRaw = "", dtEndRaw = "";
+            bool isAllDay = false;
+
+            foreach (string rawLine in lines)
+            {
+                if (rawLine == "BEGIN:VEVENT")
+                {
+                    inEvent = true;
+                    summary = ""; location = ""; desc = ""; dtStartRaw = ""; dtEndRaw = "";
+                    isAllDay = false;
+                }
+                else if (rawLine == "END:VEVENT" && inEvent)
+                {
+                    inEvent = false;
+                    DateTime sDt, eDt;
+                    if (TryParseIcsDate(dtStartRaw, out sDt, out isAllDay))
+                    {
+                        bool dummy;
+                        if (!TryParseIcsDate(dtEndRaw, out eDt, out dummy))
+                            eDt = isAllDay ? sDt.AddDays(1) : sDt.AddHours(1);
+
+                        results.Add(new CalendarEventItem
+                        {
+                            Start = sDt,
+                            End = eDt,
+                            AllDay = isAllDay,
+                            Source = sourceTag,
+                            ColorHex = defaultColor,
+                            Title = UnescapeIcsText(summary),
+                            Location = UnescapeIcsText(location),
+                            Description = UnescapeIcsText(desc),
+                            HtmlLink = "https://calendar.google.com"
+                        });
+                    }
+                }
+                else if (inEvent)
+                {
+                    int colon = rawLine.IndexOf(':');
+                    if (colon > 0)
+                    {
+                        string keyPart = rawLine.Substring(0, colon).ToUpperInvariant();
+                        string valPart = rawLine.Substring(colon + 1);
+                        if (keyPart.StartsWith("DTSTART")) dtStartRaw = valPart;
+                        else if (keyPart.StartsWith("DTEND")) dtEndRaw = valPart;
+                        else if (keyPart.StartsWith("SUMMARY")) summary = valPart;
+                        else if (keyPart.StartsWith("LOCATION")) location = valPart;
+                        else if (keyPart.StartsWith("DESCRIPTION")) desc = valPart;
+                    }
+                }
+            }
+            return results;
+        }
+
+        private bool TryParseIcsDate(string raw, out DateTime dt, out bool allDay)
+        {
+            dt = DateTime.MinValue;
+            allDay = false;
+            if (string.IsNullOrEmpty(raw)) return false;
+            raw = raw.Trim();
+            if (raw.Length == 8 && DateTime.TryParseExact(raw, "yyyyMMdd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out dt))
+            {
+                allDay = true;
+                return true;
+            }
+            if (raw.EndsWith("Z") && DateTime.TryParseExact(raw, "yyyyMMdd'T'HHmmss'Z'", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AdjustToUniversal, out dt))
+            {
+                dt = dt.ToLocalTime();
+                return true;
+            }
+            if (DateTime.TryParseExact(raw, "yyyyMMdd'T'HHmmss", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out dt))
+            {
+                return true;
+            }
+            return false;
+        }
+
+        private string UnescapeIcsText(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return "";
+            return s.Replace("\\n", " ").Replace("\\N", " ").Replace("\\,", ",").Replace("\\;", ";").Trim();
         }
     }
 }
