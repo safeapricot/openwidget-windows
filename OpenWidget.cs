@@ -6021,14 +6021,15 @@ namespace OpenWidget
             Grid.SetRow(calQuickAddPanel, 1);
             rightPane.Children.Add(calQuickAddPanel);
 
-            // Scrollable Events Stack
+            // Scrollable Events Stack with Sleek Ultra-Thin Dark/Accent ScrollBar
             ScrollViewer evScroll = new ScrollViewer
             {
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
                 PanningMode = PanningMode.VerticalOnly
             };
-            calEventsListPanel = new StackPanel();
+            ApplyThinDarkScrollBarStyle(evScroll);
+            calEventsListPanel = new StackPanel { Margin = new Thickness(0, 0, 3, 0) };
             evScroll.Content = calEventsListPanel;
             Grid.SetRow(evScroll, 2);
             rightPane.Children.Add(evScroll);
@@ -6053,6 +6054,44 @@ namespace OpenWidget
             calOuterBorder.Child = rootGrid;
             calendarWindow.Content = calOuterBorder;
             UpdateDraggableButtonUi();
+        }
+
+        private void ApplyThinDarkScrollBarStyle(ScrollViewer sv)
+        {
+            try
+            {
+                string xaml = @"
+<Style xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'
+       xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml'
+       TargetType='{x:Type ScrollBar}'>
+    <Setter Property='Width' Value='4'/>
+    <Setter Property='MinWidth' Value='4'/>
+    <Setter Property='Margin' Value='2,0,0,0'/>
+    <Setter Property='Background' Value='Transparent'/>
+    <Setter Property='Template'>
+        <Setter.Value>
+            <ControlTemplate TargetType='{x:Type ScrollBar}'>
+                <Grid Background='#221C1613' Width='4'>
+                    <Track x:Name='PART_Track' IsDirectionReversed='True'>
+                        <Track.Thumb>
+                            <Thumb>
+                                <Thumb.Template>
+                                    <ControlTemplate TargetType='{x:Type Thumb}'>
+                                        <Border CornerRadius='2' Background='#88C7B9AE'/>
+                                    </ControlTemplate>
+                                </Thumb.Template>
+                            </Thumb>
+                        </Track.Thumb>
+                    </Track>
+                </Grid>
+            </ControlTemplate>
+        </Setter.Value>
+    </Setter>
+</Style>";
+                Style sbStyle = (Style)System.Windows.Markup.XamlReader.Parse(xaml);
+                sv.Resources[typeof(ScrollBar)] = sbStyle;
+            }
+            catch { }
         }
 
         private void ApplyCalendarWidgetTheme()
@@ -6088,8 +6127,9 @@ namespace OpenWidget
             try
             {
                 string[] trDayNamesUpper = { "PAZAR", "PAZARTESİ", "SALI", "ÇARŞAMBA", "PERŞEMBE", "CUMA", "CUMARTESİ" };
-                string[] trDayNamesShort = { "Paz", "Pzt", "Sal", "Çar", "Per", "Cum", "Cmt" };
+                string[] trDayNamesShortUpper = { "PAZ", "PZT", "SAL", "ÇAR", "PER", "CUM", "CMT" };
                 string[] trMonthNames = { "", "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık" };
+                string[] trMonthNamesUpper = { "", "OCAK", "ŞUBAT", "MART", "NİSAN", "MAYIS", "HAZİRAN", "TEMMUZ", "AĞUSTOS", "EYLÜL", "EKİM", "KASIM", "ARALIK" };
 
                 DateTime today = DateTime.Today;
                 DateTime headerDate = calSelectedDate.Date;
@@ -6204,14 +6244,14 @@ namespace OpenWidget
                 bool isViewingToday = (calSelectedDate.Date == today);
                 if (isViewingToday)
                 {
-                    txtCalRightScheduleTitle.Text = string.Format("BUGÜN • {0} {1} ({2})", today.Day, trMonthNames[today.Month].ToUpperInvariant(), dayEvents.Count > 0 ? (dayEvents.Count + " ETKİNLİK") : "BOŞ");
+                    txtCalRightScheduleTitle.Text = string.Format("BUGÜN • {0} {1} ({2})", today.Day, trMonthNamesUpper[today.Month], dayEvents.Count > 0 ? (dayEvents.Count + " ETKİNLİK") : "BOŞ");
                 }
                 else
                 {
                     txtCalRightScheduleTitle.Text = string.Format("{0} {1} {2} • {3} ETKİNLİK",
                         calSelectedDate.Day,
-                        trMonthNames[calSelectedDate.Month].ToUpperInvariant(),
-                        trDayNamesShort[(int)calSelectedDate.DayOfWeek].ToUpperInvariant(),
+                        trMonthNamesUpper[calSelectedDate.Month],
+                        trDayNamesShortUpper[(int)calSelectedDate.DayOfWeek],
                         dayEvents.Count);
                 }
 
@@ -6253,8 +6293,8 @@ namespace OpenWidget
                         if (nextEvents.Count > 0)
                         {
                             string nextHdr = ahead == 1
-                                ? string.Format("SIRADAKİ • YARIN ({0} {1})", nextDate.Day, trMonthNames[nextDate.Month].ToUpperInvariant())
-                                : string.Format("SIRADAKİ • {0} {1} {2}", nextDate.Day, trMonthNames[nextDate.Month].ToUpperInvariant(), trDayNamesUpper[(int)nextDate.DayOfWeek]);
+                                ? string.Format("SIRADAKİ • YARIN ({0} {1})", nextDate.Day, trMonthNamesUpper[nextDate.Month])
+                                : string.Format("SIRADAKİ • {0} {1} {2}", nextDate.Day, trMonthNamesUpper[nextDate.Month], trDayNamesUpper[(int)nextDate.DayOfWeek]);
 
                             calEventsListPanel.Children.Add(new TextBlock
                             {
