@@ -939,6 +939,13 @@ namespace OpenWidget
         private Canvas timerHeatmapCanvas;
         private int lastHeatmapLayoutWidth = 0;
         private int lastHeatmapLayoutHeight = 0;
+        private readonly List<Border> heatmapCellPool = new List<Border>(400);
+        private readonly List<TextBlock> heatmapMonthPool = new List<TextBlock>(16);
+        private string lastPlayBtnBrushKey = "";
+        private Brush cachedPlayBtnBg = null;
+        private Brush cachedPlayBtnBd = null;
+        private int lastRenderedLitTicks = -1;
+        private string lastRenderedTickHex = "";
         private Border todayHeatmapCell;
         private Brush[] cachedHeatmapTierBrushes = new Brush[6];
         private string cachedHeatmapAccentHex = "";
@@ -1325,6 +1332,7 @@ namespace OpenWidget
                 {
                     saveSettingsDebounceTimer.Stop();
                     SaveSettings();
+                    TrimProcessMemory();
                 };
             }
             saveSettingsDebounceTimer.Stop();
@@ -1499,6 +1507,11 @@ namespace OpenWidget
                     InitializeTimerWidget();
                     SaveSettings();
                     TrimProcessMemory();
+                    Task.Run(async () =>
+                    {
+                        await Task.Delay(2500);
+                        TrimProcessMemory();
+                    });
                 }), DispatcherPriority.Loaded);
             };
 
@@ -8275,6 +8288,15 @@ namespace OpenWidget
             return card;
         }
 
+        private void OnHeatmapCellToolTipOpening(object sender, ToolTipEventArgs e)
+        {
+            Border cell = sender as Border;
+            if (cell != null && cell.Tag is DateTime)
+            {
+                cell.ToolTip = FormatActivityTooltip((DateTime)cell.Tag);
+            }
+        }
+
         private void BuildTimerHeatmapGrid()
         {
             if (timerHeatmapCanvas == null) return;
@@ -8289,8 +8311,6 @@ namespace OpenWidget
 
                 lastHeatmapLayoutWidth = (int)Math.Round(availW);
                 lastHeatmapLayoutHeight = (int)Math.Round(availH);
-
-                timerHeatmapCanvas.Children.Clear();
                 todayHeatmapCell = null;
 
                 string[] trShortMonths = { "", "Oca", "Şub", "Mar", "Nis", "May", "Haz", "Tem", "Ağu", "Eyl", "Eki", "Kas", "Ara" };
@@ -8320,6 +8340,8 @@ namespace OpenWidget
 
                 int lastLabeledMonth = -1;
                 double lastLabelX = -100.0;
+                int usedMonthCount = 0;
+                int usedCellCount = 0;
 
                 for (int w = 0; w < weeksCount; w++)
                 {
@@ -8343,16 +8365,29 @@ namespace OpenWidget
                     {
                         lastLabeledMonth = mToLabel;
                         lastLabelX = x;
-                        TextBlock mLbl = new TextBlock
+
+                        TextBlock mLbl;
+                        if (usedMonthCount < heatmapMonthPool.Count)
                         {
-                            Text = trShortMonths[mToLabel],
-                            Foreground = monthLabelBrush,
-                            FontSize = 9.0,
-                            FontWeight = FontWeights.SemiBold
-                        };
+                            mLbl = heatmapMonthPool[usedMonthCount];
+                        }
+                        else
+                        {
+                            mLbl = new TextBlock
+                            {
+                                FontSize = 9.0,
+                                FontWeight = FontWeights.SemiBold
+                            };
+                            heatmapMonthPool.Add(mLbl);
+                            timerHeatmapCanvas.Children.Add(mLbl);
+                        }
+                        usedMonthCount++;
+
+                        mLbl.Text = trShortMonths[mToLabel];
+                        mLbl.Foreground = monthLabelBrush;
+                        mLbl.Visibility = Visibility.Visible;
                         Canvas.SetLeft(mLbl, x);
                         Canvas.SetTop(mLbl, 0);
-                        timerHeatmapCanvas.Children.Add(mLbl);
                     }
 
                     for (int r = 0; r < 7; r++)
@@ -8361,31 +8396,44 @@ namespace OpenWidget
                         if (cellDate > today) continue;
 
                         bool isToday = (cellDate == today);
-                        DateTime capturedDate = cellDate;
 
-                        Border cell = new Border
+                        Border cell;
+                        if (usedCellCount < heatmapCellPool.Count)
                         {
-                            Width = squareSize,
-                            Height = squareSize,
-                            CornerRadius = cellCorner,
-                            Background = GetHeatmapCellBrush(cellDate),
-                            BorderBrush = isToday ? todayBorderBrush : Brushes.Transparent,
-                            BorderThickness = new Thickness(isToday ? 1.0 : 0),
-                            Cursor = Cursors.Hand,
-                            ToolTip = ""
-                        };
+                            cell = heatmapCellPool[usedCellCount];
+                        }
+                        else
+                        {
+                            cell = new Border
+                            {
+                                Cursor = Cursors.Hand,
+                                ToolTip = ""
+                            };
+                            cell.ToolTipOpening += OnHeatmapCellToolTipOpening;
+                            heatmapCellPool.Add(cell);
+                            timerHeatmapCanvas.Children.Add(cell);
+                        }
+                        usedCellCount++;
 
-                        cell.ToolTipOpening += (s, e) =>
-                        {
-                            ((Border)s).ToolTip = FormatActivityTooltip(capturedDate);
-                        };
+                        cell.Width = squareSize;
+                        cell.Height = squareSize;
+                        cell.CornerRadius = cellCorner;
+                        cell.Background = GetHeatmapCellBrush(cellDate);
+                        cell.BorderBrush = isToday ? todayBorderBrush : Brushes.Transparent;
+                        cell.BorderThickness = new Thickness(isToday ? 1.0 : 0);
+                        cell.Tag = cellDate;
+                        cell.Visibility = Visibility.Visible;
 
                         Canvas.SetLeft(cell, x);
                         Canvas.SetTop(cell, rowY[r]);
                         if (isToday) todayHeatmapCell = cell;
-                        timerHeatmapCanvas.Children.Add(cell);
                     }
                 }
+
+                for (int i = usedMonthCount; i < heatmapMonthPool.Count; i++)
+                    heatmapMonthPool[i].Visibility = Visibility.Collapsed;
+                for (int i = usedCellCount; i < heatmapCellPool.Count; i++)
+                    heatmapCellPool[i].Visibility = Visibility.Collapsed;
             }
             catch { }
         }
@@ -8851,14 +8899,29 @@ namespace OpenWidget
                 SaveTimerActivityData();
             }
 
-            if (todayHeatmapCell != null)
-            {
-                todayHeatmapCell.Background = GetHeatmapCellBrush(today);
-            }
+            bool anyTimerRunning = (timerCurrentMode == 0 && defaultTimerIsRunning) ||
+                (timerCurrentMode == 1 && gameTimerIsRunning) ||
+                (timerCurrentMode == 2 && pomoIsRunning);
 
-            if (showTimerWidget)
+            if (anyTimerRunning)
             {
-                UpdateTimerWidgetUi();
+                int totalActive = todayRec.StudySeconds + todayRec.GameSeconds;
+                if (todayHeatmapCell != null && (totalActive <= 2 || (totalActive % 30) == 0))
+                {
+                    todayHeatmapCell.Background = GetHeatmapCellBrush(today);
+                }
+
+                if (showTimerWidget)
+                {
+                    UpdateTimerWidgetUi();
+                }
+            }
+            else
+            {
+                if (showTimerWidget && txtTodayPcVal != null && (todayRec.PcSeconds < 60 || (todayRec.PcSeconds % 60) == 0))
+                {
+                    txtTodayPcVal.Text = FormatDurationTurkish(todayRec.PcSeconds);
+                }
             }
         }
 
@@ -8955,42 +9018,54 @@ namespace OpenWidget
                 txtTimerDialCenter.Text = dialCenterStr;
                 txtTimerDialCenter.FontSize = dialCenterStr.Length >= 7 ? 15.0 : 18.5;
 
-                Brush litBrush = HexBrush(activeTickHex);
-                Brush dimBrush = HexBrush("#443730");
-                for (int t = 0; t < 24; t++)
+                if (litTicks != lastRenderedLitTicks || !string.Equals(activeTickHex, lastRenderedTickHex, StringComparison.Ordinal))
                 {
-                    if (timerDialTicks[t] != null)
-                        timerDialTicks[t].Stroke = (t < litTicks) ? litBrush : dimBrush;
+                    Brush litBrush = HexBrush(activeTickHex);
+                    Brush dimBrush = HexBrush("#443730");
+                    for (int t = 0; t < 24; t++)
+                    {
+                        if (timerDialTicks[t] != null)
+                            timerDialTicks[t].Stroke = (t < litTicks) ? litBrush : dimBrush;
+                    }
+                    lastRenderedLitTicks = litTicks;
+                    lastRenderedTickHex = activeTickHex;
                 }
                 if (timerDialInnerCircle != null)
                 {
                     timerDialInnerCircle.BorderBrush = HexBrush(activeRunning ? activeTickHex : "#443730");
                 }
 
-                // 3. Play/Pause icon & color matching active mode
+                // 3. Play/Pause icon & color matching active mode (cached to avoid per-tick Brush allocations)
                 if (txtPomoPlayPauseIcon != null && btnPomoPlayPause != null)
                 {
                     txtPomoPlayPauseIcon.Text = activeRunning ? "⏸" : "▶";
                     txtPomoPlayPauseIcon.Margin = new Thickness(activeRunning ? 0 : 1.5, 0, 0, 0);
 
-                    Color modeBase = timerCurrentMode == 0
-                        ? ParseColor(accentColorHex)
-                        : (timerCurrentMode == 1 ? Color.FromRgb(139, 92, 246) : Color.FromRgb(46, 160, 67));
-                    Color btnBgCol = activeRunning
-                        ? modeBase
-                        : BlendColors(Color.FromRgb(26, 22, 19), modeBase, 0.72, 255);
-                    Color btnBdCol = BlendColors(modeBase, Colors.White, activeRunning ? 0.38 : 0.25, 255);
+                    string playBtnKey = timerCurrentMode + "|" + (activeRunning ? "1" : "0") + "|" + accentColorHex;
+                    if (!string.Equals(playBtnKey, lastPlayBtnBrushKey, StringComparison.Ordinal))
+                    {
+                        Color modeBase = timerCurrentMode == 0
+                            ? ParseColor(accentColorHex)
+                            : (timerCurrentMode == 1 ? Color.FromRgb(139, 92, 246) : Color.FromRgb(46, 160, 67));
+                        Color btnBgCol = activeRunning
+                            ? modeBase
+                            : BlendColors(Color.FromRgb(26, 22, 19), modeBase, 0.72, 255);
+                        Color btnBdCol = BlendColors(modeBase, Colors.White, activeRunning ? 0.38 : 0.25, 255);
 
-                    SolidColorBrush bgBr = new SolidColorBrush(btnBgCol);
-                    bgBr.Freeze();
-                    SolidColorBrush bdBr = new SolidColorBrush(btnBdCol);
-                    bdBr.Freeze();
-                    btnPomoPlayPause.Background = bgBr;
-                    btnPomoPlayPause.BorderBrush = bdBr;
+                        SolidColorBrush bgBr = new SolidColorBrush(btnBgCol);
+                        bgBr.Freeze();
+                        SolidColorBrush bdBr = new SolidColorBrush(btnBdCol);
+                        bdBr.Freeze();
+                        cachedPlayBtnBg = bgBr;
+                        cachedPlayBtnBd = bdBr;
+                        lastPlayBtnBrushKey = playBtnKey;
 
-                    btnPomoPlayPause.ToolTip = timerCurrentMode == 0
-                        ? "Zamanlayıcıyı Başlat / Duraklat"
-                        : (timerCurrentMode == 1 ? "Eğlence Sayacını Başlat / Duraklat" : "Pomodoro'yu Başlat / Duraklat");
+                        btnPomoPlayPause.ToolTip = timerCurrentMode == 0
+                            ? "Zamanlayıcıyı Başlat / Duraklat"
+                            : (timerCurrentMode == 1 ? "Eğlence Sayacını Başlat / Duraklat" : "Pomodoro'yu Başlat / Duraklat");
+                    }
+                    btnPomoPlayPause.Background = cachedPlayBtnBg;
+                    btnPomoPlayPause.BorderBrush = cachedPlayBtnBd;
                 }
 
                 // 4. Today Stats Labels
@@ -9024,7 +9099,7 @@ namespace OpenWidget
                 if (timerPomoSettingsPopup != null)
                     timerPomoSettingsPopup.BorderBrush = HexBrush(accentColorHex);
 
-                if (timerHeatmapCanvas != null && (timerHeatmapCanvas.Children.Count == 0 ||
+                if (timerHeatmapCanvas != null && (heatmapCellPool.Count == 0 ||
                     !string.Equals(cachedHeatmapAccentHex, accentColorHex, StringComparison.OrdinalIgnoreCase)))
                 {
                     BuildTimerHeatmapGrid();
