@@ -594,6 +594,21 @@ namespace OpenWidget
         private static extern ulong GetTickCount64();
         [DllImport("kernel32.dll")]
         private static extern bool SetProcessWorkingSetSize(IntPtr proc, IntPtr min, IntPtr max);
+        [DllImport("user32.dll")]
+        private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        private static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern IntPtr OpenProcess(uint dwDesiredAccess, bool bInheritHandle, uint dwProcessId);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool CloseHandle(IntPtr hObject);
+        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+        private static extern bool QueryFullProcessImageName(IntPtr hProcess, int dwFlags, StringBuilder lpExeName, ref int lpdwSize);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool GetExitCodeProcess(IntPtr hProcess, out uint lpExitCode);
+
+        private const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+        private const uint STILL_ACTIVE = 259;
 
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
         private class MEMORYSTATUSEX
@@ -923,6 +938,97 @@ namespace OpenWidget
         private DispatcherTimer timerWidgetTickTimer;
         private System.Windows.Forms.ToolStripMenuItem trayTimerItem;
         private readonly Dictionary<DateTime, DailyActivityRecord> activityByDate = new Dictionary<DateTime, DailyActivityRecord>();
+        private uint activeGamePid = 0;
+        private string activeGameName = "";
+        private uint lastCheckedNonGamePid = 0;
+        private bool lastCheckedWasJava = false;
+        private int autoGameCheckTick = 0;
+        private readonly StringBuilder procPathSb = new StringBuilder(512);
+        private readonly StringBuilder windowTitleSb = new StringBuilder(256);
+
+        private static readonly HashSet<string> ExcludedNonGameExes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "explorer", "searchhost", "searchapp", "shellexperiencehost", "startmenuexperiencehost",
+            "textinputhost", "applicationframehost", "systemsettings", "taskmgr", "dwm", "csrss", "svchost",
+            "lockapp", "snippingtool", "screenclippinghost", "mspaint", "notepad", "calc", "calculatorapp",
+            "cmd", "powershell", "pwsh", "windowsterminal", "conhost", "regedit", "mmc", "control", "msiexec", "rundll32",
+            "chrome", "msedge", "firefox", "opera", "opera_gx", "brave", "vivaldi",
+            "discord", "discordptb", "discordcanary", "spotify", "vlc", "mpv", "potplayermini64",
+            "telegram", "whatsapp", "teams", "ms-teams", "slack", "zoom",
+            "code", "devenv", "rider64", "idea64", "pycharm64", "clion64", "sublime_text", "notepad++",
+            "openwidget", "wallpaper32", "wallpaper64", "ui32", "obs64", "obs32", "sharex", "nvidia overlay", "geforceexperience",
+            "steam", "steamwebhelper", "steamservice", "gameoverlayui", "epicgameslauncher", "epicwebhelper",
+            "eosoverlayrenderer-win64-shipping", "riotclientservices", "riotclientux", "riotclientuxrender", "riotclientelectron",
+            "battle.net", "agent", "eaapp", "eadesktop", "eabackgroundservice", "ealocalhostsvc", "origin",
+            "ubisoftconnect", "upc", "ubisoftgamelauncher", "galaxyclient", "xboxpcapp", "gamingservices",
+            "curseforge", "overwolf", "overwolfbrowser", "modrinth app", "prismlauncher", "multimc", "tlauncher",
+            "vgc", "vgtray", "easyanticheat", "easyanticheat_eos"
+        };
+
+        private static readonly Dictionary<string, string> KnownGameFriendlyNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "cs2", "Counter-Strike 2" },
+            { "csgo", "CS:GO" },
+            { "valorant", "VALORANT" },
+            { "valorant-win64-shipping", "VALORANT" },
+            { "league of legends", "League of Legends" },
+            { "r5apex", "Apex Legends" },
+            { "r5apex_dx12", "Apex Legends" },
+            { "eldenring", "ELDEN RING" },
+            { "gta5", "GTA V" },
+            { "gta5_enhanced", "GTA V" },
+            { "playgtav", "GTA V" },
+            { "rdr2", "Red Dead Redemption 2" },
+            { "cyberpunk2077", "Cyberpunk 2077" },
+            { "witcher3", "The Witcher 3" },
+            { "fortniteclient-win64-shipping", "Fortnite" },
+            { "overwatch", "Overwatch 2" },
+            { "dota2", "Dota 2" },
+            { "rocketleague", "Rocket League" },
+            { "tslgame", "PUBG" },
+            { "bg3", "Baldur's Gate 3" },
+            { "bg3_dx11", "Baldur's Gate 3" },
+            { "fc24", "EA FC 24" },
+            { "fc25", "EA FC 25" },
+            { "forzahorizon5", "Forza Horizon 5" },
+            { "eurotrucks2", "Euro Truck Sim 2" },
+            { "amtrucks", "American Truck Sim" },
+            { "rustclient", "Rust" },
+            { "deadbydaylight-win64-shipping", "Dead by Daylight" },
+            { "genshinimpact", "Genshin Impact" },
+            { "starrail", "Honkai: Star Rail" },
+            { "palworld-win64-shipping", "Palworld" },
+            { "helldivers2", "HELLDIVERS 2" },
+            { "marvel-win64-shipping", "Marvel Rivals" },
+            { "marvelrivals-win64-shipping", "Marvel Rivals" },
+            { "b1-win64-shipping", "Black Myth: Wukong" },
+            { "pathofexile", "Path of Exile" },
+            { "pathofexile_x64", "Path of Exile" },
+            { "pathofexile2", "Path of Exile 2" },
+            { "pathofexile2steam", "Path of Exile 2" },
+            { "escapefromtarkov", "Escape from Tarkov" },
+            { "rainbowsix", "Rainbow Six Siege" },
+            { "rainbowsix_vulkan", "Rainbow Six Siege" },
+            { "rainbowsix_be", "Rainbow Six Siege" },
+            { "robloxplayerbeta", "Roblox" },
+            { "minecraft.windows", "Minecraft Bedrock" },
+            { "stardew valley", "Stardew Valley" },
+            { "hades", "Hades" },
+            { "hades2", "Hades II" },
+            { "hollow_knight", "Hollow Knight" },
+            { "terraria", "Terraria" },
+            { "factorio", "Factorio" },
+            { "factorygame-win64-shipping", "Satisfactory" },
+            { "factorygamesteam-win64-shipping", "Satisfactory" },
+            { "valheim", "Valheim" },
+            { "sekiro", "Sekiro" },
+            { "darksoulsiii", "Dark Souls III" },
+            { "l4d2", "Left 4 Dead 2" },
+            { "left4dead2", "Left 4 Dead 2" },
+            { "tf_win64", "Team Fortress 2" },
+            { "brawlhalla", "Brawlhalla" },
+            { "osu!", "osu!" }
+        };
 
         private class DailyActivityRecord
         {
@@ -7127,7 +7233,7 @@ namespace OpenWidget
             string[] lines = unfolded.Split(new char[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
 
             bool inEvent = false;
-            string summary = "", location = "", desc = "", dtStartRaw = "", dtEndRaw = "", uid = "", rrule = "", recurIdRaw = "", status = "", colorRaw = "";
+            string summary = "", location = "", desc = "", dtStartRaw = "", dtEndRaw = "", uid = "", rrule = "", recurIdRaw = "", status = "";
             List<string> exdates = new List<string>();
 
             // Weekly classes are stored as ONE recurring VEVENT (RRULE) plus optional overrides (RECURRENCE-ID) and EXDATEs.
@@ -7144,7 +7250,7 @@ namespace OpenWidget
                 if (rawLine == "BEGIN:VEVENT")
                 {
                     inEvent = true;
-                    summary = ""; location = ""; desc = ""; dtStartRaw = ""; dtEndRaw = ""; uid = ""; rrule = ""; recurIdRaw = ""; status = ""; colorRaw = "";
+                    summary = ""; location = ""; desc = ""; dtStartRaw = ""; dtEndRaw = ""; uid = ""; rrule = ""; recurIdRaw = ""; status = "";
                     exdates = new List<string>();
                 }
                 else if (rawLine == "END:VEVENT" && inEvent)
@@ -8390,6 +8496,11 @@ namespace OpenWidget
                 return;
             }
 
+            if (newMode != 1 && activeGamePid == 0)
+            {
+                activeGameName = "";
+            }
+
             timerCurrentMode = newMode;
             if (timerCurrentMode == 1)
             {
@@ -8414,6 +8525,287 @@ namespace OpenWidget
             UpdateTimerWidgetUi();
         }
 
+        private bool IsProcessStillAlive(uint pid)
+        {
+            if (pid == 0) return false;
+            IntPtr hProc = IntPtr.Zero;
+            try
+            {
+                hProc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
+                if (hProc == IntPtr.Zero)
+                {
+                    if (Marshal.GetLastWin32Error() == 5)
+                    {
+                        IntPtr fg = GetForegroundWindow();
+                        if (fg != IntPtr.Zero)
+                        {
+                            uint fgPid;
+                            GetWindowThreadProcessId(fg, out fgPid);
+                            if (fgPid == pid) return true;
+                        }
+                    }
+                    return false;
+                }
+                uint exitCode;
+                return GetExitCodeProcess(hProc, out exitCode) && exitCode == STILL_ACTIVE;
+            }
+            catch
+            {
+                return false;
+            }
+            finally
+            {
+                if (hProc != IntPtr.Zero) CloseHandle(hProc);
+            }
+        }
+
+        private string TryGetProcessImagePath(uint pid)
+        {
+            if (pid == 0) return null;
+            IntPtr hProc = IntPtr.Zero;
+            try
+            {
+                hProc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
+                if (hProc == IntPtr.Zero) return null;
+                procPathSb.Length = 0;
+                int size = procPathSb.Capacity;
+                if (QueryFullProcessImageName(hProc, 0, procPathSb, ref size) && size > 0)
+                    return procPathSb.ToString();
+                return null;
+            }
+            catch
+            {
+                return null;
+            }
+            finally
+            {
+                if (hProc != IntPtr.Zero) CloseHandle(hProc);
+            }
+        }
+
+        private static bool ExtractSubfolderAfterMarker(string fullPath, string lowerPath, string marker, out string folderName)
+        {
+            folderName = "";
+            int idx = lowerPath.IndexOf(marker, StringComparison.Ordinal);
+            if (idx < 0) return false;
+            int start = idx + marker.Length;
+            if (start >= fullPath.Length) return false;
+            int slash = fullPath.IndexOf('\\', start);
+            if (slash <= start) return false;
+            folderName = fullPath.Substring(start, slash - start).Trim();
+            return folderName.Length > 0;
+        }
+
+        private bool IsGameExecutable(string fullPath, IntPtr hwnd, out string friendlyName, out bool isJavaProcess)
+        {
+            friendlyName = "";
+            isJavaProcess = false;
+            if (string.IsNullOrEmpty(fullPath)) return false;
+
+            string exeStem = System.IO.Path.GetFileNameWithoutExtension(fullPath);
+            if (string.IsNullOrEmpty(exeStem)) return false;
+            string lowerStem = exeStem.ToLowerInvariant();
+            string lowerPath = fullPath.ToLowerInvariant();
+
+            if (ExcludedNonGameExes.Contains(lowerStem)) return false;
+
+            if ((lowerStem.Contains("launcher") && !lowerStem.Contains("minecraft")) ||
+                lowerStem.EndsWith("helper") ||
+                lowerStem.Contains("crashreporter") ||
+                lowerStem.Contains("prereq") ||
+                lowerStem.Contains("setup") ||
+                lowerStem.Contains("unins") ||
+                lowerStem.Contains("redist") ||
+                lowerStem.Contains("updater") ||
+                lowerStem.Contains("installer"))
+            {
+                return false;
+            }
+
+            // Special case: Minecraft / Java edition runs inside javaw.exe / java.exe
+            if (lowerStem == "javaw" || lowerStem == "java")
+            {
+                isJavaProcess = true;
+                windowTitleSb.Length = 0;
+                int tLen = GetWindowText(hwnd, windowTitleSb, windowTitleSb.Capacity);
+                if (tLen > 0)
+                {
+                    string wt = windowTitleSb.ToString().ToLowerInvariant();
+                    if (wt.Contains("minecraft") || wt.Contains("lunar client") ||
+                        wt.Contains("feather") || wt.Contains("badlion") ||
+                        wt.Contains("modrinth") || wt.Contains("curseforge"))
+                    {
+                        friendlyName = "Minecraft";
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            string knownTitle;
+            bool hasKnownTitle = KnownGameFriendlyNames.TryGetValue(lowerStem, out knownTitle);
+
+            // Check well-known game library directories
+            string folder;
+            if (ExtractSubfolderAfterMarker(fullPath, lowerPath, "\\steamapps\\common\\", out folder))
+            {
+                string lf = folder.ToLowerInvariant();
+                if (lf.Contains("steamworks") || lf == "wallpaper_engine" || lf.Contains("steamvr") ||
+                    lf.StartsWith("proton") || lf == "soundpad" || lf.Contains("controller"))
+                    return false;
+                friendlyName = hasKnownTitle ? knownTitle : folder;
+                return true;
+            }
+            if (ExtractSubfolderAfterMarker(fullPath, lowerPath, "\\epic games\\", out folder))
+            {
+                string lf = folder.ToLowerInvariant();
+                if (lf == "launcher" || lf == "epic online services" || lf == "directxredist")
+                    return false;
+                friendlyName = hasKnownTitle ? knownTitle : folder;
+                return true;
+            }
+            if (ExtractSubfolderAfterMarker(fullPath, lowerPath, "\\riot games\\", out folder))
+            {
+                string lf = folder.ToLowerInvariant();
+                if (lf == "riot client" || lf == "riot vanguard")
+                    return false;
+                friendlyName = hasKnownTitle ? knownTitle : folder;
+                return true;
+            }
+            if (ExtractSubfolderAfterMarker(fullPath, lowerPath, "\\xboxgames\\", out folder) ||
+                ExtractSubfolderAfterMarker(fullPath, lowerPath, "\\gog galaxy\\games\\", out folder) ||
+                ExtractSubfolderAfterMarker(fullPath, lowerPath, "\\gog games\\", out folder) ||
+                ExtractSubfolderAfterMarker(fullPath, lowerPath, "\\ubisoft game launcher\\games\\", out folder) ||
+                ExtractSubfolderAfterMarker(fullPath, lowerPath, "\\ea games\\", out folder) ||
+                ExtractSubfolderAfterMarker(fullPath, lowerPath, "\\origin games\\", out folder) ||
+                ExtractSubfolderAfterMarker(fullPath, lowerPath, "\\battle.net\\games\\", out folder))
+            {
+                if (folder.Equals("GamingServices", StringComparison.OrdinalIgnoreCase))
+                    return false;
+                friendlyName = hasKnownTitle ? knownTitle : folder;
+                return true;
+            }
+            if (ExtractSubfolderAfterMarker(fullPath, lowerPath, "\\games\\", out folder) ||
+                ExtractSubfolderAfterMarker(fullPath, lowerPath, "\\oyunlar\\", out folder))
+            {
+                string lf = folder.ToLowerInvariant();
+                if (lf == "launcher" || lf == "riot client")
+                    return false;
+                friendlyName = hasKnownTitle ? knownTitle : folder;
+                return true;
+            }
+
+            if (hasKnownTitle)
+            {
+                friendlyName = knownTitle;
+                return true;
+            }
+
+            return false;
+        }
+
+        private void CheckAutoGameDetection()
+        {
+            if (activeGamePid != 0)
+            {
+                if (!IsProcessStillAlive(activeGamePid))
+                {
+                    string closedGame = string.IsNullOrEmpty(activeGameName) ? "Oyun" : activeGameName;
+                    activeGamePid = 0;
+                    activeGameName = "";
+                    lastCheckedNonGamePid = 0;
+                    lastCheckedWasJava = false;
+
+                    // When the detected game closes, ALWAYS return to Default Mode
+                    timerCurrentMode = 0;
+                    pomoIsRunning = false;
+                    SaveTimerActivityData();
+                    UpdateTimerWidgetUi();
+
+                    try
+                    {
+                        if (trayIcon != null)
+                        {
+                            trayIcon.ShowBalloonTip(4000, "🖥 Oyun Kapatıldı",
+                                closedGame + " kapatıldı. Otomatik olarak Default Moda geçildi.",
+                                System.Windows.Forms.ToolTipIcon.Info);
+                        }
+                    }
+                    catch { }
+                    ShowToast("🖥 Oyun kapatıldı (" + closedGame + ") • Default Moda geçildi");
+                }
+                return;
+            }
+
+            IntPtr fg = GetForegroundWindow();
+            if (fg == IntPtr.Zero || fg == cachedMainHwnd || fg == cachedCalHwnd || fg == cachedTimerHwnd)
+                return;
+
+            uint pid;
+            GetWindowThreadProcessId(fg, out pid);
+            if (pid == 0 || (pid == lastCheckedNonGamePid && !lastCheckedWasJava))
+                return;
+
+            string fullPath = TryGetProcessImagePath(pid);
+            if (string.IsNullOrEmpty(fullPath))
+                return;
+
+            string detectedName;
+            bool isJava;
+            if (!IsGameExecutable(fullPath, fg, out detectedName, out isJava))
+            {
+                lastCheckedNonGamePid = pid;
+                lastCheckedWasJava = isJava;
+                return;
+            }
+
+            activeGamePid = pid;
+            activeGameName = detectedName;
+            lastCheckedNonGamePid = 0;
+            lastCheckedWasJava = false;
+
+            int prevMode = timerCurrentMode;
+            timerCurrentMode = 1;
+            pomoIsRunning = false;
+            if (prevMode != 1)
+            {
+                timerGameSessionSeconds = 0;
+            }
+
+            SaveTimerActivityData();
+            UpdateTimerWidgetUi();
+
+            if (prevMode == 2)
+            {
+                try { System.Media.SystemSounds.Hand.Play(); } catch { }
+                try
+                {
+                    if (trayIcon != null)
+                    {
+                        trayIcon.ShowBalloonTip(6000, "⚠️ Ders Modunda Oyun Algılandı!",
+                            detectedName + " açıldığı için Pomodoro duraklatıldı ve otomatik olarak Eğlence Moduna geçildi!",
+                            System.Windows.Forms.ToolTipIcon.Warning);
+                    }
+                }
+                catch { }
+                ShowToast("⚠️ Ders modundayken oyun açıldı (" + detectedName + ")! Eğlence moduna geçildi.");
+            }
+            else if (prevMode == 0)
+            {
+                try
+                {
+                    if (trayIcon != null)
+                    {
+                        trayIcon.ShowBalloonTip(4000, "🎮 Oyun Algılandı",
+                            detectedName + " algılandı. Otomatik olarak Eğlence Moduna geçildi.",
+                            System.Windows.Forms.ToolTipIcon.Info);
+                    }
+                }
+                catch { }
+                ShowToast("🎮 Oyun algılandı (" + detectedName + ") • Eğlence Modu aktif");
+            }
+        }
+
         private void AdjustPomodoroSettings(int deltaFocus, int deltaBreak)
         {
             pomoFocusMinutes = Math.Max(1, Math.Min(180, pomoFocusMinutes + deltaFocus));
@@ -8436,6 +8828,13 @@ namespace OpenWidget
                 activeTrackingDate = today;
                 SaveTimerActivityData();
                 BuildTimerHeatmapGrid();
+            }
+
+            autoGameCheckTick++;
+            if (autoGameCheckTick >= 2)
+            {
+                autoGameCheckTick = 0;
+                CheckAutoGameDetection();
             }
 
             DailyActivityRecord todayRec = GetOrCreateActivityRecord(today);
@@ -8522,7 +8921,13 @@ namespace OpenWidget
                 {
                     txtTimerDialPhase.Text = "Eğlence / Oyun Modu";
                     txtTimerDialCenter.Text = string.Format("{0:00}:{1:00}", timerGameSessionSeconds / 60, timerGameSessionSeconds % 60);
-                    txtTimerDialSub.Text = "🎮 Oyun Kaydediliyor";
+                    string subText = "🎮 Oyun Kaydediliyor";
+                    if (!string.IsNullOrEmpty(activeGameName))
+                    {
+                        string dispName = activeGameName.Length > 18 ? activeGameName.Substring(0, 16) + ".." : activeGameName;
+                        subText = "🎮 " + dispName;
+                    }
+                    txtTimerDialSub.Text = subText;
                     activeTickHex = "#A78BFA";
                     litTicks = Math.Max(1, ((timerGameSessionSeconds % 3600) * 24) / 3600);
                 }
