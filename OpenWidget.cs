@@ -935,7 +935,10 @@ namespace OpenWidget
         private TextBlock txtTodayStudyVal;
         private TextBlock txtTodayGameVal;
         private TextBlock txtTodayPcVal;
-        private StackPanel timerHeatmapContainer;
+        private Grid timerHeatmapHost;
+        private Canvas timerHeatmapCanvas;
+        private int lastHeatmapLayoutWidth = 0;
+        private int lastHeatmapLayoutHeight = 0;
         private Border todayHeatmapCell;
         private Brush[] cachedHeatmapTierBrushes = new Brush[6];
         private string cachedHeatmapAccentHex = "";
@@ -7733,8 +7736,8 @@ namespace OpenWidget
 
             Grid rootGrid = new Grid();
             rootGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // Header + Mode Switcher
-            rootGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // Middle Dial + Stats
-            rootGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // Heatmap
+            rootGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1.50, GridUnitType.Star) }); // Middle Dial + Stats
+            rootGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(0.92, GridUnitType.Star) }); // Heatmap
 
             // ==========================================
             // 1. TOP HEADER BAR & 3-MODE SWITCHER
@@ -7827,11 +7830,11 @@ namespace OpenWidget
             // 2. MIDDLE: CIRCULAR DIAL + DAILY STATS
             // ==========================================
             Grid middleGrid = new Grid { Margin = new Thickness(0, 0, 0, 9) };
-            middleGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(202) });
-            middleGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
-            middleGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            middleGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0.42, GridUnitType.Star), MinWidth = 196 });
+            middleGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(10) });
+            middleGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0.58, GridUnitType.Star) });
 
-            // Left: Circular Focus/Mode Dial + Green Play/Pause & Reset Controls
+            // Left: Circular Focus/Mode Dial + Play/Pause & Reset Controls
             Border dialCard = new Border
             {
                 CornerRadius = new CornerRadius(11),
@@ -7843,7 +7846,7 @@ namespace OpenWidget
 
             Grid dialLayout = new Grid();
             dialLayout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            dialLayout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            dialLayout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
             txtTimerDialPhase = new TextBlock
             {
@@ -7858,7 +7861,7 @@ namespace OpenWidget
 
             Grid dialBody = new Grid();
             dialBody.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(116) });
-            dialBody.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            dialBody.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
             // 114x114 Tick Dial
             Grid dialFace = new Grid { Width = 114, Height = 114 };
@@ -8042,14 +8045,25 @@ namespace OpenWidget
             Grid.SetColumn(dialSideBtns, 1);
             dialBody.Children.Add(dialSideBtns);
 
-            Grid.SetRow(dialBody, 1);
-            dialLayout.Children.Add(dialBody);
+            Viewbox dialViewbox = new Viewbox
+            {
+                Stretch = Stretch.Uniform,
+                MaxHeight = 190,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Child = dialBody
+            };
+            Grid.SetRow(dialViewbox, 1);
+            dialLayout.Children.Add(dialViewbox);
             dialCard.Child = dialLayout;
             Grid.SetColumn(dialCard, 0);
             middleGrid.Children.Add(dialCard);
 
             // Right: 3 Daily Stat Cards + Overlay Collapsible Pomodoro Settings
-            StackPanel rightStatsStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            Grid rightStatsGrid = new Grid();
+            rightStatsGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            rightStatsGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            rightStatsGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
             // Collapsible Pomodoro Settings Bar (Overlay in Column 2 so toggling it doesn't shrink heatmap)
             timerPomoSettingsPopup = new Border
@@ -8130,12 +8144,18 @@ namespace OpenWidget
             timerPomoSettingsPopup.Child = psStack;
 
             // 3 Daily Summary Stat Cards (exact Turkish metrics requested)
-            rightStatsStack.Children.Add(CreateTimerStatCard("#2EA043", "📚 Bugün Çalışılan", out txtTodayStudyVal));
-            rightStatsStack.Children.Add(CreateTimerStatCard("#A78BFA", "🎮 Bugün Oyun Oynanan", out txtTodayGameVal));
-            rightStatsStack.Children.Add(CreateTimerStatCard(accentColorHex, "🖥 Bilgisayar Açık Kalma", out txtTodayPcVal, true));
+            Border statStudyCard = CreateTimerStatCard("#2EA043", "📚 Bugün Çalışılan", out txtTodayStudyVal);
+            Border statGameCard = CreateTimerStatCard("#A78BFA", "🎮 Bugün Oyun Oynanan", out txtTodayGameVal);
+            Border statPcCard = CreateTimerStatCard(accentColorHex, "🖥 Bilgisayar Açık Kalma", out txtTodayPcVal, true);
+            Grid.SetRow(statStudyCard, 0);
+            Grid.SetRow(statGameCard, 1);
+            Grid.SetRow(statPcCard, 2);
+            rightStatsGrid.Children.Add(statStudyCard);
+            rightStatsGrid.Children.Add(statGameCard);
+            rightStatsGrid.Children.Add(statPcCard);
 
-            Grid.SetColumn(rightStatsStack, 2);
-            middleGrid.Children.Add(rightStatsStack);
+            Grid.SetColumn(rightStatsGrid, 2);
+            middleGrid.Children.Add(rightStatsGrid);
             Grid.SetColumn(timerPomoSettingsPopup, 2);
             middleGrid.Children.Add(timerPomoSettingsPopup);
 
@@ -8143,7 +8163,7 @@ namespace OpenWidget
             rootGrid.Children.Add(middleGrid);
 
             // ==========================================
-            // 3. BOTTOM: GITHUB-STYLE YEARLY HEATMAP
+            // 3. BOTTOM: RESPONSIVE PIXEL-EXACT HEATMAP
             // ==========================================
             Border heatmapBorder = new Border
             {
@@ -8151,20 +8171,32 @@ namespace OpenWidget
                 Background = HexBrush("#661E1815"),
                 BorderBrush = HexBrush("#382E28"),
                 BorderThickness = new Thickness(1),
-                Padding = new Thickness(6, 5, 6, 5)
+                Padding = new Thickness(8, 6, 8, 6)
             };
 
-            // Full-bleed Viewbox fills the allocated heatmap box completely with the 53x7 day squares
-            Viewbox hmViewbox = new Viewbox
+            timerHeatmapHost = new Grid
             {
-                Stretch = Stretch.Fill,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Stretch,
+                ClipToBounds = true
+            };
+            timerHeatmapCanvas = new Canvas
+            {
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 VerticalAlignment = VerticalAlignment.Stretch
             };
-            timerHeatmapContainer = new StackPanel { Orientation = Orientation.Vertical };
-            hmViewbox.Child = timerHeatmapContainer;
+            timerHeatmapHost.Children.Add(timerHeatmapCanvas);
+            timerHeatmapHost.SizeChanged += (s, e) =>
+            {
+                int w = (int)Math.Round(timerHeatmapHost.ActualWidth);
+                int h = (int)Math.Round(timerHeatmapHost.ActualHeight);
+                if (Math.Abs(w - lastHeatmapLayoutWidth) >= 2 || Math.Abs(h - lastHeatmapLayoutHeight) >= 2)
+                {
+                    BuildTimerHeatmapGrid();
+                }
+            };
 
-            heatmapBorder.Child = hmViewbox;
+            heatmapBorder.Child = timerHeatmapHost;
             Grid.SetRow(heatmapBorder, 2);
             rootGrid.Children.Add(heatmapBorder);
 
@@ -8245,30 +8277,55 @@ namespace OpenWidget
 
         private void BuildTimerHeatmapGrid()
         {
-            if (timerHeatmapContainer == null) return;
+            if (timerHeatmapCanvas == null) return;
             try
             {
-                timerHeatmapContainer.Children.Clear();
+                double availW = (timerHeatmapHost != null && timerHeatmapHost.ActualWidth > 40)
+                    ? timerHeatmapHost.ActualWidth
+                    : Math.Max(260.0, savedTimerWidth - 48.0);
+                double availH = (timerHeatmapHost != null && timerHeatmapHost.ActualHeight > 25)
+                    ? timerHeatmapHost.ActualHeight
+                    : Math.Max(68.0, (savedTimerHeight - 54.0) * (0.92 / 2.42) - 14.0);
+
+                lastHeatmapLayoutWidth = (int)Math.Round(availW);
+                lastHeatmapLayoutHeight = (int)Math.Round(availH);
+
+                timerHeatmapCanvas.Children.Clear();
                 todayHeatmapCell = null;
 
                 string[] trShortMonths = { "", "Oca", "Şub", "Mar", "Nis", "May", "Haz", "Tem", "Ağu", "Eyl", "Eki", "Kas", "Ara" };
                 DateTime today = DateTime.Today;
                 int todayDowOffset = ((int)today.DayOfWeek + 6) % 7; // Monday = 0 .. Sunday = 6
                 DateTime currentWeekMonday = today.AddDays(-todayDowOffset);
-                const int weeksCount = 53;
+
+                const double headerH = 15.0;
+                double gridH = Math.Max(35.0, availH - headerH);
+                double rowPitch = gridH / 7.0;
+                int weeksCount = Math.Max(14, Math.Min(78, (int)Math.Round(availW / rowPitch)));
+                double colPitch = availW / weeksCount;
+                double cellStep = Math.Min(colPitch, rowPitch);
+                double gap = Math.Max(1.5, Math.Round(cellStep * 0.18));
+                double squareSize = Math.Max(4.0, Math.Floor(cellStep - gap));
+                double cornerRad = Math.Max(1.4, Math.Round(squareSize * 0.22, 1));
+                CornerRadius cellCorner = new CornerRadius(cornerRad);
+                Brush todayBorderBrush = HexBrush("#FAF6F2");
+                Brush monthLabelBrush = HexBrush("#9E8E82");
+
                 DateTime gridStartMonday = currentWeekMonday.AddDays(-(weeksCount - 1) * 7);
+                double[] rowY = new double[7];
+                for (int r = 0; r < 7; r++)
+                {
+                    rowY[r] = headerH + Math.Round(r * (gridH - squareSize) / 6.0);
+                }
 
-                // Full-width geometry inside Stretch.Fill Viewbox with no side gaps
-                const double cellPitch = 9.4; // 7.8px square + 1.6px gap
-                double totalW = weeksCount * cellPitch;
-
-                // Month Header Row
-                Canvas monthHeader = new Canvas { Width = totalW, Height = 13, ClipToBounds = true };
                 int lastLabeledMonth = -1;
-                int lastLabeledCol = -10;
+                double lastLabelX = -100.0;
+
                 for (int w = 0; w < weeksCount; w++)
                 {
                     DateTime colMonday = gridStartMonday.AddDays(w * 7);
+                    double x = (weeksCount > 1) ? Math.Round(w * (availW - squareSize) / (weeksCount - 1)) : 0;
+
                     int mToLabel = -1;
                     for (int d = 0; d < 7; d++)
                     {
@@ -8282,56 +8339,38 @@ namespace OpenWidget
                     }
                     if (w == 0 && mToLabel < 0) mToLabel = colMonday.Month;
 
-                    if (mToLabel > 0 && (w - lastLabeledCol) >= 3)
+                    if (mToLabel > 0 && (x - lastLabelX) >= 28.0 && x <= availW - 22.0)
                     {
                         lastLabeledMonth = mToLabel;
-                        lastLabeledCol = w;
+                        lastLabelX = x;
                         TextBlock mLbl = new TextBlock
                         {
                             Text = trShortMonths[mToLabel],
-                            Foreground = HexBrush("#9E8E82"),
-                            FontSize = 8.5,
+                            Foreground = monthLabelBrush,
+                            FontSize = 9.0,
                             FontWeight = FontWeights.SemiBold
                         };
-                        Canvas.SetLeft(mLbl, Math.Min(w * cellPitch, totalW - 22.0));
+                        Canvas.SetLeft(mLbl, x);
                         Canvas.SetTop(mLbl, 0);
-                        monthHeader.Children.Add(mLbl);
+                        timerHeatmapCanvas.Children.Add(mLbl);
                     }
-                }
-                timerHeatmapContainer.Children.Add(monthHeader);
 
-                UniformGrid cellsGrid = new UniformGrid
-                {
-                    Columns = weeksCount,
-                    Rows = 7,
-                    Width = totalW,
-                    Height = 7 * cellPitch
-                };
-
-                // UniformGrid fills row-major (row 0 cols 0..52, then row 1 cols 0..52, ...)
-                for (int r = 0; r < 7; r++)
-                {
-                    for (int w = 0; w < weeksCount; w++)
+                    for (int r = 0; r < 7; r++)
                     {
-                        DateTime cellDate = gridStartMonday.AddDays(w * 7 + r).Date;
-                        if (cellDate > today)
-                        {
-                            cellsGrid.Children.Add(new Border { Width = 7.8, Height = 7.8, Margin = new Thickness(0.8), Visibility = Visibility.Hidden });
-                            continue;
-                        }
+                        DateTime cellDate = colMonday.AddDays(r).Date;
+                        if (cellDate > today) continue;
 
                         bool isToday = (cellDate == today);
                         DateTime capturedDate = cellDate;
 
                         Border cell = new Border
                         {
-                            Width = 7.8,
-                            Height = 7.8,
-                            CornerRadius = new CornerRadius(1.7),
+                            Width = squareSize,
+                            Height = squareSize,
+                            CornerRadius = cellCorner,
                             Background = GetHeatmapCellBrush(cellDate),
-                            BorderBrush = isToday ? HexBrush("#FAF6F2") : Brushes.Transparent,
-                            BorderThickness = new Thickness(isToday ? 0.8 : 0),
-                            Margin = new Thickness(0.8),
+                            BorderBrush = isToday ? todayBorderBrush : Brushes.Transparent,
+                            BorderThickness = new Thickness(isToday ? 1.0 : 0),
                             Cursor = Cursors.Hand,
                             ToolTip = ""
                         };
@@ -8341,12 +8380,12 @@ namespace OpenWidget
                             ((Border)s).ToolTip = FormatActivityTooltip(capturedDate);
                         };
 
+                        Canvas.SetLeft(cell, x);
+                        Canvas.SetTop(cell, rowY[r]);
                         if (isToday) todayHeatmapCell = cell;
-                        cellsGrid.Children.Add(cell);
+                        timerHeatmapCanvas.Children.Add(cell);
                     }
                 }
-
-                timerHeatmapContainer.Children.Add(cellsGrid);
             }
             catch { }
         }
@@ -8985,7 +9024,7 @@ namespace OpenWidget
                 if (timerPomoSettingsPopup != null)
                     timerPomoSettingsPopup.BorderBrush = HexBrush(accentColorHex);
 
-                if (timerHeatmapContainer != null && (timerHeatmapContainer.Children.Count == 0 ||
+                if (timerHeatmapCanvas != null && (timerHeatmapCanvas.Children.Count == 0 ||
                     !string.Equals(cachedHeatmapAccentHex, accentColorHex, StringComparison.OrdinalIgnoreCase)))
                 {
                     BuildTimerHeatmapGrid();
