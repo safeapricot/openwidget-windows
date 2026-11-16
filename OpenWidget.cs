@@ -915,9 +915,63 @@ namespace OpenWidget
             catch { }
         }
 
+        public static void ApplyThinScrollBarStyle(ScrollViewer sv, string accentHex)
+        {
+            if (sv == null) return;
+            try
+            {
+                string thumbHex = string.IsNullOrEmpty(accentHex) ? "#E2925C" : accentHex;
+                string xaml = string.Format(@"
+<Style xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'
+       xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml'
+       TargetType='{{x:Type ScrollBar}}'>
+    <Setter Property='Width' Value='5'/>
+    <Setter Property='MinWidth' Value='5'/>
+    <Setter Property='Margin' Value='2,2,0,2'/>
+    <Setter Property='Background' Value='Transparent'/>
+    <Setter Property='Template'>
+        <Setter.Value>
+            <ControlTemplate TargetType='{{x:Type ScrollBar}}'>
+                <Border Background='#261A1411' CornerRadius='2.5' Width='5'>
+                    <Track x:Name='PART_Track' IsDirectionReversed='True'>
+                        <Track.DecreaseRepeatButton>
+                            <RepeatButton Command='ScrollBar.PageUpCommand' Opacity='0' Focusable='False'/>
+                        </Track.DecreaseRepeatButton>
+                        <Track.IncreaseRepeatButton>
+                            <RepeatButton Command='ScrollBar.PageDownCommand' Opacity='0' Focusable='False'/>
+                        </Track.IncreaseRepeatButton>
+                        <Track.Thumb>
+                            <Thumb Cursor='Hand'>
+                                <Thumb.Template>
+                                    <ControlTemplate TargetType='{{x:Type Thumb}}'>
+                                        <Border CornerRadius='2.5' Background='{0}' Opacity='0.85'/>
+                                    </ControlTemplate>
+                                </Thumb.Template>
+                            </Thumb>
+                        </Track.Thumb>
+                    </Track>
+                </Border>
+            </ControlTemplate>
+        </Setter.Value>
+    </Setter>
+</Style>", thumbHex);
+                Style sbStyle = (Style)System.Windows.Markup.XamlReader.Parse(xaml);
+                sv.Resources[typeof(ScrollBar)] = sbStyle;
+            }
+            catch { }
+        }
+
         [STAThread]
         public static void Main(string[] args)
         {
+            // Multi-core background JIT profile for faster cold-boot launches
+            try
+            {
+                System.Runtime.ProfileOptimization.SetProfileRoot(AppDomain.CurrentDomain.BaseDirectory);
+                System.Runtime.ProfileOptimization.StartProfile("OpenWidget.jit.profile");
+            }
+            catch { }
+
             try { SetProcessDpiAwareness(2); }
             catch { try { SetProcessDPIAware(); } catch { } }
 
@@ -1080,6 +1134,7 @@ namespace OpenWidget
                 PanningMode = PanningMode.VerticalOnly,
                 Margin = new Thickness(0, 0, 0, 12)
             };
+            Program.ApplyThinScrollBarStyle(wizScroll, selectedAccent);
             StackPanel root = new StackPanel { Margin = new Thickness(0, 0, 4, 0) };
             wizScroll.Content = root;
             Grid.SetRow(wizScroll, 1);
@@ -1263,6 +1318,7 @@ namespace OpenWidget
                     sw.BorderThickness = new Thickness(2.5);
                     card.BorderBrush = HexBrush(hex);
                     if (btnFinish != null) btnFinish.Background = HexBrush(hex);
+                    Program.ApplyThinScrollBarStyle(wizScroll, selectedAccent);
                 };
                 swatchGrid.Children.Add(sw);
             }
@@ -1295,6 +1351,7 @@ namespace OpenWidget
                         foreach (Border b in swatchBorders) b.BorderThickness = new Thickness(0.5);
                         card.BorderBrush = HexBrush(selectedAccent);
                         if (btnFinish != null) btnFinish.Background = HexBrush(selectedAccent);
+                        Program.ApplyThinScrollBarStyle(wizScroll, selectedAccent);
                     }
                 }
             };
@@ -1529,6 +1586,17 @@ namespace OpenWidget
                         {
                             if (enableStartup) key.SetValue("OpenWidgetPublic", "\"" + exePath + "\"");
                             else key.DeleteValue("OpenWidgetPublic", false);
+                        }
+                    }
+                    if (enableStartup)
+                    {
+                        using (RegistryKey serKey = Registry.CurrentUser.CreateSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Serialize"))
+                        {
+                            if (serKey != null)
+                            {
+                                serKey.SetValue("StartupDelayInMSec", 0, RegistryValueKind.DWord);
+                                serKey.SetValue("WaitForIdleState", 0, RegistryValueKind.DWord);
+                            }
                         }
                     }
 
@@ -2218,6 +2286,7 @@ namespace OpenWidget
         private TextBlock txtCalMonthYearLabel;
         private StackPanel calMiniMonthGrid;
         private TextBlock txtCalRightScheduleTitle;
+        private ScrollViewer calEventsScroll;
         private StackPanel calEventsListPanel;
         private Border calQuickAddPanel;
         private TextBox txtCalQuickTitle;
@@ -2457,25 +2526,6 @@ namespace OpenWidget
                 }
             }
             catch { }
-
-            // Initialize Direct NVML C-API if user has an NVIDIA GPU
-            try
-            {
-                if (NvmlNative.nvmlInit_v2() == 0)
-                {
-                    if (NvmlNative.nvmlDeviceGetHandleByIndex_v2(0, out nvmlDeviceHandle) == 0)
-                    {
-                        nvmlInitialized = true;
-                        StringBuilder sb = new StringBuilder(96);
-                        if (NvmlNative.nvmlDeviceGetName(nvmlDeviceHandle, sb, 96) == 0)
-                        {
-                            string rawGpu = sb.ToString().Replace("NVIDIA", "").Replace("GeForce", "").Trim();
-                            if (!string.IsNullOrEmpty(rawGpu)) gpuModelName = rawGpu;
-                        }
-                    }
-                }
-            }
-            catch { }
         }
 
         private void LoadSettings()
@@ -2655,6 +2705,7 @@ namespace OpenWidget
                 }
             }
             catch { }
+            if (IsAutoStartEnabled()) EnsureAutoStart(true);
         }
 
         private void SaveSettings()
@@ -2753,6 +2804,17 @@ namespace OpenWidget
                     {
                         if (enable) key.SetValue("OpenWidgetPublic", "\"" + exePath + "\"");
                         else key.DeleteValue("OpenWidgetPublic", false);
+                    }
+                }
+                if (enable)
+                {
+                    using (RegistryKey serKey = Registry.CurrentUser.CreateSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Serialize"))
+                    {
+                        if (serKey != null)
+                        {
+                            serKey.SetValue("StartupDelayInMSec", 0, RegistryValueKind.DWord);
+                            serKey.SetValue("WaitForIdleState", 0, RegistryValueKind.DWord);
+                        }
                     }
                 }
             }
@@ -2868,10 +2930,11 @@ namespace OpenWidget
                         FitHeightToContentIfCompact();
                     }
                     isWindowInitialized = true;
-                    if (showCalendarWidget) InitializeCalendarWidget();
-                    if (showTimerWidget) InitializeTimerWidget();
-                    SaveSettings();
-                    TrimProcessMemory();
+                    Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        if (showCalendarWidget) InitializeCalendarWidget();
+                        if (showTimerWidget) InitializeTimerWidget();
+                    }), DispatcherPriority.ApplicationIdle);
                     Task.Run(async () =>
                     {
                         await Task.Delay(2500);
@@ -3801,14 +3864,14 @@ namespace OpenWidget
                     Minimum='{2}' Maximum='100' Value='{1}' IsMoveToPointEnabled='True' Cursor='Hand' Margin='{3}'>
                 <Slider.Template>
                     <ControlTemplate TargetType='Slider'>
-                        <Grid VerticalAlignment='Center' Height='20'>
-                            <Border Height='6' CornerRadius='3' Background='#2A211C' VerticalAlignment='Center'/>
+                        <Grid VerticalAlignment='Center' Height='18'>
+                            <Border Height='4' CornerRadius='2' Background='#2A211C' VerticalAlignment='Center'/>
                             <Track x:Name='PART_Track'>
                                 <Track.DecreaseRepeatButton>
                                     <RepeatButton Command='Slider.DecreaseLarge'>
                                         <RepeatButton.Template>
                                             <ControlTemplate TargetType='RepeatButton'>
-                                                <Border Height='6' CornerRadius='3' Background='{0}' VerticalAlignment='Center'/>
+                                                <Border Height='4' CornerRadius='2' Background='{0}' VerticalAlignment='Center'/>
                                             </ControlTemplate>
                                         </RepeatButton.Template>
                                     </RepeatButton>
@@ -3817,7 +3880,7 @@ namespace OpenWidget
                                     <RepeatButton Command='Slider.IncreaseLarge'>
                                         <RepeatButton.Template>
                                             <ControlTemplate TargetType='RepeatButton'>
-                                                <Border Height='6' CornerRadius='3' Background='Transparent' VerticalAlignment='Center'/>
+                                                <Border Height='4' CornerRadius='2' Background='Transparent' VerticalAlignment='Center'/>
                                             </ControlTemplate>
                                         </RepeatButton.Template>
                                     </RepeatButton>
@@ -3826,7 +3889,7 @@ namespace OpenWidget
                                     <Thumb>
                                         <Thumb.Template>
                                             <ControlTemplate TargetType='Thumb'>
-                                                <Border Width='16' Height='16' CornerRadius='8' Background='#FAF6F2' BorderBrush='{0}' BorderThickness='2.5'/>
+                                                <Border Width='14' Height='14' CornerRadius='7' Background='{0}' BorderBrush='#FAF6F2' BorderThickness='2'/>
                                             </ControlTemplate>
                                         </Thumb.Template>
                                     </Thumb>
@@ -4130,33 +4193,39 @@ namespace OpenWidget
         // ==========================================
         private void InitializeTrayAndAudio()
         {
-            try
-            {
-                var enumerator = (IMMDeviceEnumerator)(new MMDeviceEnumeratorComObject());
-                IMMDevice devConsole;
-                if (enumerator.GetDefaultAudioEndpoint(1, 0, out devConsole) == 0 && devConsole != null)
-                {
-                    Guid iid = typeof(IAudioEndpointVolume).GUID;
-                    object obj;
-                    devConsole.Activate(ref iid, 23, IntPtr.Zero, out obj);
-                    cachedMicVolumeConsole = (IAudioEndpointVolume)obj;
-                }
-                IMMDevice devComm;
-                if (enumerator.GetDefaultAudioEndpoint(1, 2, out devComm) == 0 && devComm != null)
-                {
-                    Guid iid = typeof(IAudioEndpointVolume).GUID;
-                    object obj;
-                    devComm.Activate(ref iid, 23, IntPtr.Zero, out obj);
-                    cachedMicVolumeComm = (IAudioEndpointVolume)obj;
-                }
-            }
-            catch { }
-
             iconMicUnmuted = CreateModernMicTrayIcon(false);
             iconMicMuted = CreateModernMicTrayIcon(true);
 
             trayIcon = new System.Windows.Forms.NotifyIcon();
+            trayIcon.Icon = iconMicUnmuted;
             trayIcon.Visible = true;
+
+            // Cache CoreAudio endpoints off the UI thread so startup never stalls on audio service/COM init
+            Task.Run(() =>
+            {
+                try
+                {
+                    var enumerator = (IMMDeviceEnumerator)(new MMDeviceEnumeratorComObject());
+                    IMMDevice devConsole;
+                    if (enumerator.GetDefaultAudioEndpoint(1, 0, out devConsole) == 0 && devConsole != null)
+                    {
+                        Guid iid = typeof(IAudioEndpointVolume).GUID;
+                        object obj;
+                        devConsole.Activate(ref iid, 23, IntPtr.Zero, out obj);
+                        cachedMicVolumeConsole = (IAudioEndpointVolume)obj;
+                    }
+                    IMMDevice devComm;
+                    if (enumerator.GetDefaultAudioEndpoint(1, 2, out devComm) == 0 && devComm != null)
+                    {
+                        Guid iid = typeof(IAudioEndpointVolume).GUID;
+                        object obj;
+                        devComm.Activate(ref iid, 23, IntPtr.Zero, out obj);
+                        cachedMicVolumeComm = (IAudioEndpointVolume)obj;
+                    }
+                }
+                catch { }
+                try { Dispatcher.BeginInvoke(new Action(() => SyncMicrophoneStateFromOs(true))); } catch { }
+            });
 
             var menu = new System.Windows.Forms.ContextMenuStrip();
             trayMuteItem = new System.Windows.Forms.ToolStripMenuItem(L("🎙 Mikrofonu Sustur / Aç (Sol Tık)", "🎙 Mute / Unmute Microphone (Left Click)"));
@@ -4243,8 +4312,6 @@ namespace OpenWidget
                     ToggleMicrophoneMute();
                 }
             };
-
-            SyncMicrophoneStateFromOs(true);
         }
 
         [DllImport("user32.dll", CharSet = CharSet.Auto)]
@@ -4788,6 +4855,7 @@ namespace OpenWidget
                 PanningMode = PanningMode.VerticalOnly,
                 Padding = new Thickness(0, 0, 4, 0)
             };
+            ApplyThinDarkScrollBarStyle(settingsScroll);
             Grid.SetRow(settingsScroll, 2);
             rootLayout.Children.Add(settingsScroll);
 
@@ -4799,6 +4867,7 @@ namespace OpenWidget
             scrollContentHost.Children.Add(tabPanels[1]);
             scrollContentHost.Children.Add(tabPanels[2]);
 
+            Action syncAccentControls = null;
             Action syncTabsUi = () =>
             {
                 for (int ti = 0; ti < 3; ti++)
@@ -4809,6 +4878,7 @@ namespace OpenWidget
                     tabBtns[ti].BorderBrush = HexBrush(active ? accentColorHex : "Transparent");
                     tabLbls[ti].Foreground = HexBrush(active ? "#FAF6F2" : "#9E8E82");
                 }
+                if (syncAccentControls != null) syncAccentControls();
             };
             for (int ti = 0; ti < 3; ti++)
             {
@@ -5170,17 +5240,34 @@ namespace OpenWidget
             opRow.Children.Add(txtOpVal);
             opSecStack.Children.Add(opRow);
 
-            Slider slOpacity = CreateModernSlider(accentColorHex, bgOpacityPercent);
-            slOpacity.Minimum = 30;
-            slOpacity.Maximum = 100;
-            slOpacity.Value = bgOpacityPercent;
-            slOpacity.ValueChanged += (s, e) =>
+            Border opSliderHost = new Border();
+            Action rebuildOpacitySlider = () =>
             {
-                int v = (int)Math.Round(e.NewValue);
-                txtOpVal.Text = IsEn ? (v + "%") : ("%" + v);
-                ApplyTheme(accentColorHex, v);
+                Slider slOpacity = CreateModernSlider(accentColorHex, bgOpacityPercent);
+                slOpacity.Minimum = 30;
+                slOpacity.Maximum = 100;
+                slOpacity.Value = bgOpacityPercent;
+                slOpacity.ValueChanged += (s, e) =>
+                {
+                    int v = (int)Math.Round(e.NewValue);
+                    txtOpVal.Text = IsEn ? (v + "%") : ("%" + v);
+                    ApplyTheme(accentColorHex, v);
+                };
+                opSliderHost.Child = slOpacity;
             };
-            opSecStack.Children.Add(slOpacity);
+            string lastSyncedAccent = accentColorHex;
+            syncAccentControls = () =>
+            {
+                if (!string.Equals(lastSyncedAccent, accentColorHex, StringComparison.OrdinalIgnoreCase))
+                {
+                    lastSyncedAccent = accentColorHex;
+                    ApplyThinDarkScrollBarStyle(settingsScroll);
+                    btnApplyHex.BorderBrush = HexBrush(accentColorHex);
+                    rebuildOpacitySlider();
+                }
+            };
+            rebuildOpacitySlider();
+            opSecStack.Children.Add(opSliderHost);
 
             Button btnFit = CreateStyledIconButton("#2E241E", "#4A3C34", L("Widget boyunu içerik kadar küçült/sığdır", "Auto-fit widget height to content"));
             btnFit.Margin = new Thickness(0, 4, 0, 0);
@@ -6224,6 +6311,24 @@ namespace OpenWidget
         {
             Task.Run(() =>
             {
+                // Initialize Direct NVML C-API off UI thread so cold boot is never stalled by GPU driver init
+                try
+                {
+                    if (NvmlNative.nvmlInit_v2() == 0)
+                    {
+                        if (NvmlNative.nvmlDeviceGetHandleByIndex_v2(0, out nvmlDeviceHandle) == 0)
+                        {
+                            nvmlInitialized = true;
+                            StringBuilder sb = new StringBuilder(96);
+                            if (NvmlNative.nvmlDeviceGetName(nvmlDeviceHandle, sb, 96) == 0)
+                            {
+                                string rawGpu = sb.ToString().Replace("NVIDIA", "").Replace("GeForce", "").Trim();
+                                if (!string.IsNullOrEmpty(rawGpu)) gpuModelName = rawGpu;
+                            }
+                        }
+                    }
+                }
+                catch { }
                 try
                 {
                     cpuCounter = new PerformanceCounter("Processor", "% Processor Time", "_Total");
@@ -6236,24 +6341,26 @@ namespace OpenWidget
                 PollWirelessDevicesAsync();
             });
 
-            try
+            clipboardHistory.Add(new ClipboardEntry { Text = L("OpenWidget Masaüstü Hazır", "OpenWidget Desktop Ready"), Time = DateTime.Now.ToString("HH:mm") });
+            RefreshClipboardUi();
+            Dispatcher.BeginInvoke(new Action(() =>
             {
-                if (Clipboard.ContainsText())
+                try
                 {
-                    string initText = Clipboard.GetText().Trim();
-                    if (!string.IsNullOrEmpty(initText))
+                    if (Clipboard.ContainsText())
                     {
-                        lastClipboardText = initText;
-                        clipboardHistory.Add(new ClipboardEntry { Text = initText, Time = DateTime.Now.ToString("HH:mm") });
+                        string initText = Clipboard.GetText().Trim();
+                        if (!string.IsNullOrEmpty(initText))
+                        {
+                            clipboardHistory.Clear();
+                            lastClipboardText = initText;
+                            clipboardHistory.Add(new ClipboardEntry { Text = initText, Time = DateTime.Now.ToString("HH:mm") });
+                            RefreshClipboardUi();
+                        }
                     }
                 }
-            }
-            catch { }
-            if (clipboardHistory.Count == 0)
-            {
-                clipboardHistory.Add(new ClipboardEntry { Text = L("OpenWidget Masaüstü Hazır", "OpenWidget Desktop Ready"), Time = DateTime.Now.ToString("HH:mm") });
-            }
-            RefreshClipboardUi();
+                catch { }
+            }), DispatcherPriority.ApplicationIdle);
 
             DispatcherTimer desktopGuardTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
             desktopGuardTimer.Tick += (s, e) => CheckAndEnforceShowDesktopImmunity();
@@ -6299,7 +6406,7 @@ namespace OpenWidget
             weatherTimer.Start();
 
             UpdateClockAndUptime();
-            UpdateTelemetryFast();
+            Dispatcher.BeginInvoke(new Action(() => UpdateTelemetryFast()), DispatcherPriority.Background);
         }
 
         private void UpdateClockAndUptime()
@@ -7281,17 +7388,17 @@ namespace OpenWidget
             Grid.SetRow(calQuickAddPanel, 1);
             rightPane.Children.Add(calQuickAddPanel);
 
-            ScrollViewer evScroll = new ScrollViewer
+            calEventsScroll = new ScrollViewer
             {
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
                 PanningMode = PanningMode.VerticalOnly
             };
-            ApplyThinDarkScrollBarStyle(evScroll);
+            ApplyThinDarkScrollBarStyle(calEventsScroll);
             calEventsListPanel = new StackPanel { Margin = new Thickness(0, 0, 3, 0) };
-            evScroll.Content = calEventsListPanel;
-            Grid.SetRow(evScroll, 2);
-            rightPane.Children.Add(evScroll);
+            calEventsScroll.Content = calEventsListPanel;
+            Grid.SetRow(calEventsScroll, 2);
+            rightPane.Children.Add(calEventsScroll);
 
             Grid.SetColumn(rightPane, 2);
             twoPaneGrid.Children.Add(rightPane);
@@ -7317,40 +7424,7 @@ namespace OpenWidget
 
         private void ApplyThinDarkScrollBarStyle(ScrollViewer sv)
         {
-            try
-            {
-                string xaml = @"
-<Style xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'
-       xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml'
-       TargetType='{x:Type ScrollBar}'>
-    <Setter Property='Width' Value='4'/>
-    <Setter Property='MinWidth' Value='4'/>
-    <Setter Property='Margin' Value='2,0,0,0'/>
-    <Setter Property='Background' Value='Transparent'/>
-    <Setter Property='Template'>
-        <Setter.Value>
-            <ControlTemplate TargetType='{x:Type ScrollBar}'>
-                <Grid Background='#221C1613' Width='4'>
-                    <Track x:Name='PART_Track' IsDirectionReversed='True'>
-                        <Track.Thumb>
-                            <Thumb>
-                                <Thumb.Template>
-                                    <ControlTemplate TargetType='{x:Type Thumb}'>
-                                        <Border CornerRadius='2' Background='#88C7B9AE'/>
-                                    </ControlTemplate>
-                                </Thumb.Template>
-                            </Thumb>
-                        </Track.Thumb>
-                    </Track>
-                </Grid>
-            </ControlTemplate>
-        </Setter.Value>
-    </Setter>
-</Style>";
-                Style sbStyle = (Style)System.Windows.Markup.XamlReader.Parse(xaml);
-                sv.Resources[typeof(ScrollBar)] = sbStyle;
-            }
-            catch { }
+            Program.ApplyThinScrollBarStyle(sv, accentColorHex);
         }
 
         private void ApplyCalendarWidgetTheme()
@@ -7374,6 +7448,8 @@ namespace OpenWidget
 
                 if (txtCalDayOfWeekHeader != null)
                     txtCalDayOfWeekHeader.Foreground = HexBrush(accentColorHex);
+                if (calEventsScroll != null)
+                    ApplyThinDarkScrollBarStyle(calEventsScroll);
 
                 RefreshCalendarWidgetUi();
             }

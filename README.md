@@ -10,7 +10,7 @@
 
 ## One-Click Download
 
-[![Download OpenWidget ZIP](https://img.shields.io/badge/DOWNLOAD%20ZIP-OpenWidget%20v2.1.1-E2925C?style=for-the-badge&logo=windows)](https://github.com/safeapricot/openwidget-windows/releases/download/v2.1.1/OpenWidget-v2.1.1.zip)
+[![Download OpenWidget ZIP](https://img.shields.io/badge/DOWNLOAD%20ZIP-OpenWidget%20v2.2.0-E2925C?style=for-the-badge&logo=windows)](https://github.com/safeapricot/openwidget-windows/releases/download/v2.2.0/OpenWidget-v2.2.0.zip)
 
 > **Quick Setup:** Click the orange button above to immediately download the `.zip` package, extract it to a folder, and run **`OpenWidget.exe`**.
 
@@ -24,13 +24,20 @@
 
 ## Overview
 
-**OpenWidget** is a single-file, zero-dependency native Windows desktop widget written in C# & WPF with direct Win32, DisplayConfig SDR/DDC, USB HID, CoreAudio COM, and NVIDIA NVML C-API calls. Unlike Electron or web-based widgets that consume 300–500 MB of RAM, OpenWidget is compiled into a **230 KB native executable** (including embedded multi-resolution icons) and uses only **~23 MB of RAM** with **0.0% idle CPU**.
+**OpenWidget** is a single-file, zero-dependency native Windows desktop widget written in C# & WPF with direct Win32, DisplayConfig SDR/DDC, USB HID, CoreAudio COM, and NVIDIA NVML C-API calls. Unlike Electron or web-based widgets that consume 300–500 MB of RAM, OpenWidget is compiled into a **~332 KB native executable** (including embedded multi-resolution icons) and uses minimal RAM with **0.0% idle CPU**.
 
 ### Key Features
 - **Interactive First-Run Setup Wizard:**
   - Automatically launches on first run (or via `--setup`).
   - **Weather Location Choice:** Auto-detect via **GPS / Location Services**, or type any **City / District** worldwide (e.g., `London`, `New York`, `Istanbul / Kadikoy`).
-  - **Custom Theme Color & Shortcuts:** Pick your favorite accent color, create a Desktop shortcut, and enable Windows Startup auto-launch.
+  - **Optional Companion Widgets, Theme Color & Shortcuts:** Pick your favorite accent color, optionally enable Calendar/Timer widgets (off by default), create a Desktop shortcut, and enable Instant Windows Startup.
+- **Optional Calendar & Timer Companion Widgets (Default Off):**
+  - **Calendar Widget:** Floating mini-month calendar & daily agenda with private iCal (`.ics`) feed support and quick event entry. Toggle anytime via **Settings -> Widgets** or System Tray.
+  - **Timer Widgeti:** Includes Stopwatch (`Default`), Gaming/Entertainment mode (with optional automatic game detection), customizable Pomodoro focus/break mode with completion notifications, daily counters, and an accent-themed yearly activity heatmap.
+- **Modern 3-Tab Scrollable Settings Window (`Appearance`, `Widgets`, `Modules`):**
+  - Redesigned with a sticky header, 3 clean tabs, responsive non-overlapping cards, and sleek theme-colored thin scrollbars and sliders.
+- **Instant Windows Boot & Cold-Launch Optimization:**
+  - Uses multi-core background JIT (`ProfileOptimization`), asynchronous CoreAudio/NVML/hardware initialization, and disables Windows Explorer's 10-second `Serialize` startup throttle when Windows auto-start is enabled.
 - **Auto-Detected Monitor Brightness Control (HDR SDR White Level & DDC/CI):**
   - Automatically detects connected monitors and their friendly model names, adding smooth brightness sliders (`0%–100%`), mouse-wheel step control (`±5%`), **`Linked / Separate`** multi-monitor sync toggle, and instant presets (`15%`, `40%`, `75%`, `100%`).
   - **HDR Lock Bypass:** Automatically uses Windows native **SDR Content Brightness (`DisplayConfigSetDeviceInfo`)** on HDR-enabled displays (where hardware VCP `0x10` is locked by monitor firmware) and hardware **DDC/CI (`dxva2.dll`)** on standard SDR displays — replacing 140 MB Electron brightness utilities with zero background overhead.
@@ -76,9 +83,16 @@ OpenWidget compiles out-of-the-box using the native .NET Framework 64-bit compil
 
 ### Öne Çıkan Özellikler
 - **Etkileşimli Kurulum Yardımcısı:**
-  - İlk açılışta otomatik olarak karşınıza çıkar:
+  - İlk açılışta otomatik olarak karşınıza çıkar (`--setup`):
   - **Hava Durumu Konumu:** İster **Otomatik Algıla (GPS / Konum Servisi)** seçin, ister **Sabit İl / İlçe** (Örn: `İstanbul / Kadıköy`, `Ankara`, `Kütahya / Merkez`) yazın.
-  - **Tema ve Kısayollar:** Başlangıç tema renginizi seçin, Masaüstü kısayolu ve Windows başlangıcında otomatik açılma ayarlarını tek tıkla tamamlayın (bence windows başlayınca aç yapın her bilgisayar açılınca açmak çok zahmetli).
+  - **İsteğe Bağlı Ek Widget'lar, Tema ve Kısayollar:** Başlangıç tema renginizi seçin, isterseniz Takvim ve Timer widget'larını açın (varsayılan kapalıdır), Masaüstü kısayolu ve hızlı Windows başlangıç açılışını tek tıkla tamamlayın.
+- **İsteğe Bağlı Takvim & Timer Widget'ları (Varsayılan Kapalı):**
+  - **Takvim Widget'ı:** Aylık mini takvim görünümü, günlük ajanda, `.ics` / iCal abonelik desteği ve hızlı etkinlik ekleme — istediğiniz zaman **Ayarlar → Ek Widget'lar** veya Sistem Tepsisi'nden açıp kapatabilirsiniz.
+  - **Timer Widgeti:** Normal zamanlayıcı, otomatik oyun algılamalı Eğlence/Oyun modu, bildirimli ve özelleştirilebilir Pomodoro Ders modu, günlük sayaçlar ve tema rengine uyumlu yıllık aktivite ısı haritası.
+- **Yenilenmiş 3 Sekmeli Ayarlar Menüsü & İnce Tema Renginde Slider/Scrollbar:**
+  - Sabit üst başlık, `Görünüm`, `Ek Widget'lar` ve `Modül Düzeni` sekmeleri, kaydırılabilir kart yapısı ve tema rengiyle güncellenen ince slider & kaydırma çubukları.
+- **Hızlı Windows Başlangıcı Optimizasyonu:**
+  - Çok çekirdekli arka plan JIT (`ProfileOptimization`), açılışı kilitlemeyen asenkron sürücü/ses/telemetri yüklemesi ve Windows otomatik başlatma aktifken Explorer başlangıç gecikmesini sıfırlama desteği.
 - **Monitör Parlaklığı Kontrolü:**
   - Bağlı monitörlerinizi ve gerçek model isimlerini otomatik algılayarak her monitör için parlaklık slider'ı (`%0–%100`), fare tekerleği ile `±%5` hassas kontrol, **`Birlikte / Ayrı`** senkronizasyon modu ve hızlı mod butonları (`%15`, `%40`, `%75`, `%100`) ekler.
   - **HDR Kilit Çözümü:** HDR açıkken donanımsal parlaklığı kilitleyen monitörlerde Windows'un yerel **SDR İçerik Parlaklığı (`DisplayConfigSetDeviceInfo`)** motorunu, standart SDR ekranlarda ise doğrudan **DDC/CI (`dxva2.dll`)** protokolünü sıfır gecikmeyle kullanır.
