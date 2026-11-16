@@ -3,4 +3,5 @@ calendar_events.dat
 custom_events.dat
 *.pdb
 *.log
+*.jit.profile
 
