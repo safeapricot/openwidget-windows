@@ -2082,6 +2082,8 @@ namespace OpenWidget
         private double savedTop = double.NaN;
         private bool hasSavedDimensions = false;
         private bool isWindowInitialized = false;
+        private bool isCalWindowInitialized = false;
+        private bool isTimerWindowInitialized = false;
 
         // Audio / Tray State (Cached Single COM Endpoint)
         private bool isMicMuted = false;
@@ -2821,6 +2823,69 @@ namespace OpenWidget
             catch { }
         }
 
+        private bool IsPositionWithinVirtualDesktop(double left, double top, double width, double height)
+        {
+            if (double.IsNaN(left) || double.IsNaN(top) || double.IsInfinity(left) || double.IsInfinity(top))
+                return false;
+            if (left <= -10000 || top <= -10000 || left >= 20000 || top >= 20000)
+                return false;
+
+            double vLeft = SystemParameters.VirtualScreenLeft;
+            double vTop = SystemParameters.VirtualScreenTop;
+            double vRight = vLeft + SystemParameters.VirtualScreenWidth;
+            double vBottom = vTop + SystemParameters.VirtualScreenHeight;
+
+            try
+            {
+                foreach (var scr in System.Windows.Forms.Screen.AllScreens)
+                {
+                    if (scr.Bounds.Left < vLeft) vLeft = scr.Bounds.Left;
+                    if (scr.Bounds.Top < vTop) vTop = scr.Bounds.Top;
+                    if (scr.Bounds.Right > vRight) vRight = scr.Bounds.Right;
+                    if (scr.Bounds.Bottom > vBottom) vBottom = scr.Bounds.Bottom;
+                }
+            }
+            catch { }
+
+            double w = Math.Max(200, width);
+            double h = Math.Max(150, height);
+            bool horizOk = (left + w >= vLeft + 60) && (left <= vRight - 60);
+            bool vertOk = (top + h >= vTop + 40) && (top <= vBottom - 60);
+            return horizOk && vertOk;
+        }
+
+        private Rect GetWindowMonitorWorkArea(Window win)
+        {
+            try
+            {
+                if (win != null)
+                {
+                    IntPtr hwnd = new WindowInteropHelper(win).Handle;
+                    System.Windows.Forms.Screen scr = hwnd != IntPtr.Zero
+                        ? System.Windows.Forms.Screen.FromHandle(hwnd)
+                        : System.Windows.Forms.Screen.FromPoint(new System.Drawing.Point(
+                            (int)Math.Round(double.IsNaN(win.Left) ? 0 : win.Left + (win.Width / 2)),
+                            (int)Math.Round(double.IsNaN(win.Top) ? 0 : win.Top + (win.Height / 2))));
+                    if (scr != null)
+                    {
+                        double scaleX = 1.0, scaleY = 1.0;
+                        PresentationSource src = PresentationSource.FromVisual(win);
+                        if (src != null && src.CompositionTarget != null)
+                        {
+                            scaleX = src.CompositionTarget.TransformToDevice.M11;
+                            scaleY = src.CompositionTarget.TransformToDevice.M22;
+                        }
+                        if (scaleX <= 0.1) scaleX = 1.0;
+                        if (scaleY <= 0.1) scaleY = 1.0;
+                        var wa = scr.WorkingArea;
+                        return new Rect(wa.Left / scaleX, wa.Top / scaleY, wa.Width / scaleX, wa.Height / scaleY);
+                    }
+                }
+            }
+            catch { }
+            return SystemParameters.WorkArea;
+        }
+
         private void InitializeWindowProps()
         {
             this.Title = "OpenWidget Desktop";
@@ -2831,9 +2896,7 @@ namespace OpenWidget
             this.Height = savedFreeHeight;
 
             var workArea = SystemParameters.WorkArea;
-            if (!double.IsNaN(savedLeft) && !double.IsNaN(savedTop) &&
-                savedLeft >= workArea.Left - 100 && savedLeft <= workArea.Right - 100 &&
-                savedTop >= workArea.Top - 50 && savedTop <= workArea.Bottom - 100)
+            if (IsPositionWithinVirtualDesktop(savedLeft, savedTop, this.Width, this.Height))
             {
                 this.Left = savedLeft;
                 this.Top = savedTop;
@@ -2953,6 +3016,21 @@ namespace OpenWidget
 
             this.Closed += (s, e) =>
             {
+                if (isWindowInitialized && IsPositionWithinVirtualDesktop(this.Left, this.Top, this.ActualWidth, this.ActualHeight))
+                {
+                    savedLeft = this.Left;
+                    savedTop = this.Top;
+                }
+                if (calendarWindow != null && isCalWindowInitialized && IsPositionWithinVirtualDesktop(calendarWindow.Left, calendarWindow.Top, calendarWindow.ActualWidth, calendarWindow.ActualHeight))
+                {
+                    savedCalLeft = calendarWindow.Left;
+                    savedCalTop = calendarWindow.Top;
+                }
+                if (timerWindow != null && isTimerWindowInitialized && IsPositionWithinVirtualDesktop(timerWindow.Left, timerWindow.Top, timerWindow.ActualWidth, timerWindow.ActualHeight))
+                {
+                    savedTimerLeft = timerWindow.Left;
+                    savedTimerTop = timerWindow.Top;
+                }
                 SaveTimerActivityData();
                 SaveSettings();
                 try
@@ -3120,7 +3198,7 @@ namespace OpenWidget
                         FrameworkElement content = (FrameworkElement)sv.Content;
                         content.Measure(new Size(this.ActualWidth - 36, double.PositiveInfinity));
                         double desiredH = content.DesiredSize.Height + 42;
-                        var workArea = SystemParameters.WorkArea;
+                        Rect workArea = GetWindowMonitorWorkArea(this);
                         double targetH = Math.Min(workArea.Height - 28, Math.Max(390, desiredH));
                         this.Height = targetH;
                         savedFreeHeight = targetH;
@@ -4633,7 +4711,7 @@ namespace OpenWidget
 
         private void DockWindow(string side)
         {
-            var workArea = SystemParameters.WorkArea;
+            Rect workArea = GetWindowMonitorWorkArea(this);
             this.Top = workArea.Top + 14;
             if (side == "Left")
             {
@@ -7017,16 +7095,14 @@ namespace OpenWidget
             TextOptions.SetTextRenderingMode(calendarWindow, TextRenderingMode.ClearType);
             RenderOptions.SetClearTypeHint(calendarWindow, ClearTypeHint.Enabled);
 
-            var workArea = SystemParameters.WorkArea;
-            if (!double.IsNaN(savedCalLeft) && !double.IsNaN(savedCalTop) &&
-                savedCalLeft >= workArea.Left - 150 && savedCalLeft <= workArea.Right - 100 &&
-                savedCalTop >= workArea.Top - 50 && savedCalTop <= workArea.Bottom - 100)
+            if (IsPositionWithinVirtualDesktop(savedCalLeft, savedCalTop, savedCalWidth, savedCalHeight))
             {
                 calendarWindow.Left = savedCalLeft;
                 calendarWindow.Top = savedCalTop;
             }
             else
             {
+                Rect workArea = GetWindowMonitorWorkArea(this);
                 double defaultLeft = this.Left - savedCalWidth - 10;
                 if (defaultLeft < workArea.Left + 10) defaultLeft = workArea.Left + 14;
                 calendarWindow.Left = defaultLeft;
@@ -7087,6 +7163,16 @@ namespace OpenWidget
                 catch { }
             };
 
+            calendarWindow.LocationChanged += (s, e) =>
+            {
+                if (isCalWindowInitialized && !double.IsNaN(calendarWindow.Left) && !double.IsNaN(calendarWindow.Top) && calendarWindow.Left > -10000 && calendarWindow.Top > -10000)
+                {
+                    savedCalLeft = calendarWindow.Left;
+                    savedCalTop = calendarWindow.Top;
+                    SaveSettingsDebounced();
+                }
+            };
+
             calendarWindow.Loaded += (s, e) =>
             {
                 IntPtr calHwnd = new WindowInteropHelper(calendarWindow).Handle;
@@ -7096,6 +7182,7 @@ namespace OpenWidget
                 AttachToDesktopShell(calHwnd);
                 HwndSource src = HwndSource.FromHwnd(calHwnd);
                 if (src != null) src.AddHook(WndProc);
+                isCalWindowInitialized = true;
             };
 
             calendarWindow.StateChanged += (s, e) =>
@@ -7803,7 +7890,7 @@ namespace OpenWidget
                 double quickAddH = (calQuickAddPanel != null && calQuickAddPanel.Visibility == Visibility.Visible) ? 38 : 0;
                 double neededRightH = eventsH + quickAddH + 68;
                 double minLeftH = 246;
-                var workArea = SystemParameters.WorkArea;
+                Rect workArea = GetWindowMonitorWorkArea(calendarWindow);
                 double targetH = Math.Min(workArea.Height - 40, Math.Max(minLeftH, Math.Ceiling(neededRightH)));
                 if ((allowShrink && Math.Abs(calendarWindow.Height - targetH) > 1.0) || (!allowShrink && calendarWindow.Height < targetH - 1.0))
                 {
@@ -8580,16 +8667,14 @@ namespace OpenWidget
             TextOptions.SetTextRenderingMode(timerWindow, TextRenderingMode.ClearType);
             RenderOptions.SetClearTypeHint(timerWindow, ClearTypeHint.Enabled);
 
-            var workArea = SystemParameters.WorkArea;
-            if (!double.IsNaN(savedTimerLeft) && !double.IsNaN(savedTimerTop) &&
-                savedTimerLeft >= workArea.Left - 150 && savedTimerLeft <= workArea.Right - 100 &&
-                savedTimerTop >= workArea.Top - 50 && savedTimerTop <= workArea.Bottom - 100)
+            if (IsPositionWithinVirtualDesktop(savedTimerLeft, savedTimerTop, savedTimerWidth, savedTimerHeight))
             {
                 timerWindow.Left = savedTimerLeft;
                 timerWindow.Top = savedTimerTop;
             }
             else
             {
+                Rect workArea = GetWindowMonitorWorkArea(this);
                 double baseLeft = !double.IsNaN(savedCalLeft) ? savedCalLeft : (this.Left - savedTimerWidth - 10);
                 if (baseLeft < workArea.Left + 10) baseLeft = workArea.Left + 14;
                 double baseTop = (!double.IsNaN(savedCalTop) ? savedCalTop : this.Top) + savedCalHeight + 10;
@@ -8649,6 +8734,16 @@ namespace OpenWidget
                 catch { }
             };
 
+            timerWindow.LocationChanged += (s, e) =>
+            {
+                if (isTimerWindowInitialized && !double.IsNaN(timerWindow.Left) && !double.IsNaN(timerWindow.Top) && timerWindow.Left > -10000 && timerWindow.Top > -10000)
+                {
+                    savedTimerLeft = timerWindow.Left;
+                    savedTimerTop = timerWindow.Top;
+                    SaveSettingsDebounced();
+                }
+            };
+
             timerWindow.Loaded += (s, e) =>
             {
                 IntPtr thwnd = new WindowInteropHelper(timerWindow).Handle;
@@ -8658,6 +8753,7 @@ namespace OpenWidget
                 AttachToDesktopShell(thwnd);
                 HwndSource src = HwndSource.FromHwnd(thwnd);
                 if (src != null) src.AddHook(WndProc);
+                isTimerWindowInitialized = true;
             };
 
             timerWindow.StateChanged += (s, e) =>
