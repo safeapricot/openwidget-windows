@@ -2930,6 +2930,36 @@ namespace OpenWidget
             return btn;
         }
 
+        private Button CreateStretchSettingsButton(string bgHex, string borderHex, string tooltip)
+        {
+            Button btn = new Button
+            {
+                Cursor = Cursors.Hand,
+                ToolTip = tooltip,
+                Background = bgHex == "Transparent" ? Brushes.Transparent : HexBrush(bgHex),
+                BorderBrush = borderHex == "Transparent" ? Brushes.Transparent : HexBrush(borderHex),
+                BorderThickness = new Thickness(1),
+                HorizontalContentAlignment = HorizontalAlignment.Stretch
+            };
+
+            ControlTemplate template = new ControlTemplate(typeof(Button));
+            FrameworkElementFactory border = new FrameworkElementFactory(typeof(Border));
+            border.SetValue(Border.CornerRadiusProperty, new CornerRadius(7));
+            border.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Button.BackgroundProperty));
+            border.SetValue(Border.BorderBrushProperty, new TemplateBindingExtension(Button.BorderBrushProperty));
+            border.SetValue(Border.BorderThicknessProperty, new TemplateBindingExtension(Button.BorderThicknessProperty));
+            border.SetValue(Border.PaddingProperty, new TemplateBindingExtension(Button.PaddingProperty));
+
+            FrameworkElementFactory presenter = new FrameworkElementFactory(typeof(ContentPresenter));
+            presenter.SetValue(ContentPresenter.HorizontalAlignmentProperty, HorizontalAlignment.Stretch);
+            presenter.SetValue(ContentPresenter.VerticalAlignmentProperty, VerticalAlignment.Center);
+            border.AppendChild(presenter);
+
+            template.VisualTree = border;
+            btn.Template = template;
+            return btn;
+        }
+
         // ==========================================
         // SYSTEM TRAY & CACHED COREAUDIO CONTROLLER
         // ==========================================
@@ -3323,6 +3353,45 @@ namespace OpenWidget
             else if (key == "clipboard") showSecClipboard = val;
         }
 
+        private Border CreateSettingsSectionCard(string sectionTitle, string subtitle)
+        {
+            Border secCard = new Border
+            {
+                CornerRadius = new CornerRadius(11),
+                Background = HexBrush("#251F1B"),
+                BorderBrush = HexBrush("#3B302A"),
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(13, 11, 13, 11),
+                Margin = new Thickness(0, 0, 0, 10)
+            };
+            StackPanel sp = new StackPanel();
+            if (!string.IsNullOrEmpty(sectionTitle))
+            {
+                sp.Children.Add(new TextBlock
+                {
+                    Text = sectionTitle,
+                    Foreground = HexBrush("#FAF6F2"),
+                    FontSize = 12,
+                    FontWeight = FontWeights.Bold,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 0, 0, string.IsNullOrEmpty(subtitle) ? 8 : 2)
+                });
+            }
+            if (!string.IsNullOrEmpty(subtitle))
+            {
+                sp.Children.Add(new TextBlock
+                {
+                    Text = subtitle,
+                    Foreground = HexBrush("#9E8E82"),
+                    FontSize = 10.5,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 0, 0, 8)
+                });
+            }
+            secCard.Child = sp;
+            return secCard;
+        }
+
         private void OpenSettingsWindow()
         {
             if (settingsWindow != null && settingsWindow.IsVisible)
@@ -3331,11 +3400,14 @@ namespace OpenWidget
                 return;
             }
 
+            if (currentSettingsTab < 0 || currentSettingsTab > 2) currentSettingsTab = 0;
+
+            double maxH = Math.Min(650, SystemParameters.WorkArea.Height - 40);
             settingsWindow = new Window
             {
                 Title = "OpenWidget Ayarları",
-                Width = 395,
-                Height = 672,
+                Width = 445,
+                Height = Math.Max(460, maxH),
                 WindowStartupLocation = WindowStartupLocation.CenterScreen,
                 WindowStyle = WindowStyle.None,
                 AllowsTransparency = true,
@@ -3352,18 +3424,23 @@ namespace OpenWidget
 
             Border card = new Border
             {
-                CornerRadius = new CornerRadius(14),
-                Background = HexBrush("#F51E1916"),
+                CornerRadius = new CornerRadius(15),
+                Background = HexBrush("#F71B1613"),
                 BorderBrush = HexBrush(accentColorHex),
                 BorderThickness = new Thickness(1.5),
-                Padding = new Thickness(18, 15, 18, 15),
+                Padding = new Thickness(16, 14, 16, 14),
                 Margin = new Thickness(8)
             };
-            card.Effect = new DropShadowEffect { Color = Colors.Black, BlurRadius = 14, Opacity = 0.65 };
+            card.Effect = new DropShadowEffect { Color = Colors.Black, BlurRadius = 16, Opacity = 0.68 };
 
-            StackPanel st = new StackPanel();
+            // Root 3-Row Grid: Fixed Sticky Header + Segmented Tab Bar + Scrollable Content Viewport
+            Grid rootLayout = new Grid();
+            rootLayout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            rootLayout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            rootLayout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
-            Grid hdr = new Grid { Margin = new Thickness(0, 0, 0, 10), Background = Brushes.Transparent, Cursor = Cursors.SizeAll };
+            // Row 0: Draggable Header
+            Grid hdr = new Grid { Margin = new Thickness(0, 0, 0, 11), Background = Brushes.Transparent, Cursor = Cursors.SizeAll };
             hdr.MouseLeftButtonDown += (s, e) =>
             {
                 if (e.ButtonState == MouseButtonState.Pressed)
@@ -3373,59 +3450,121 @@ namespace OpenWidget
             };
             hdr.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             hdr.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            hdr.Children.Add(new TextBlock { Text = "⚙ OpenWidget Ayarları", Foreground = HexBrush("#FAF6F2"), FontSize = 14, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center });
+
+            StackPanel hdrTitleStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0) };
+            hdrTitleStack.Children.Add(new TextBlock
+            {
+                Text = "⚙ OpenWidget Ayarları",
+                Foreground = HexBrush("#FAF6F2"),
+                FontSize = 15,
+                FontWeight = FontWeights.Bold
+            });
+            hdrTitleStack.Children.Add(new TextBlock
+            {
+                Text = "Görünüm, masaüstü eklentileri ve modül düzeni",
+                Foreground = HexBrush("#9E8E82"),
+                FontSize = 10.5,
+                Margin = new Thickness(0, 1, 0, 0)
+            });
+            Grid.SetColumn(hdrTitleStack, 0);
+            hdr.Children.Add(hdrTitleStack);
 
             Button btnClose = CreateStyledIconButton("#2E2520", "#4A3C34", "Kapat");
-            btnClose.Padding = new Thickness(8, 2, 8, 2);
-            btnClose.Content = new TextBlock { Text = "✕", Foreground = HexBrush("#C7B9AE"), FontSize = 11 };
+            btnClose.Padding = new Thickness(9, 4, 9, 4);
+            btnClose.VerticalAlignment = VerticalAlignment.Center;
+            btnClose.Content = new TextBlock { Text = "✕", Foreground = HexBrush("#C7B9AE"), FontSize = 11.5 };
             btnClose.Click += (s, e) => settingsWindow.Close();
             Grid.SetColumn(btnClose, 1);
             hdr.Children.Add(btnClose);
-            st.Children.Add(hdr);
+            Grid.SetRow(hdr, 0);
+            rootLayout.Children.Add(hdr);
 
-            // Top Tab Switcher: [🎨 Görünüm & Tema] [🧩 Düzen & Modüller]
-            UniformGrid tabBar = new UniformGrid { Columns = 2, Margin = new Thickness(0, 0, 0, 12) };
-            Button btnTabGeneral = CreateStyledIconButton("#26201C", "#4A3C34", "Tema Rengi ve Saydamlık");
-            btnTabGeneral.Margin = new Thickness(0, 0, 4, 0);
-            btnTabGeneral.Padding = new Thickness(8, 6, 8, 6);
-            TextBlock txtTabGen = new TextBlock { Text = "🎨 Görünüm & Tema", FontSize = 11.5, FontWeight = FontWeights.SemiBold };
-            btnTabGeneral.Content = txtTabGen;
+            // Row 1: Modern 3-Tab Segmented Bar
+            Border tabShell = new Border
+            {
+                CornerRadius = new CornerRadius(10),
+                Background = HexBrush("#14100E"),
+                BorderBrush = HexBrush("#332924"),
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(3),
+                Margin = new Thickness(0, 0, 0, 10)
+            };
+            UniformGrid tabBar = new UniformGrid { Columns = 3 };
+            Button[] tabBtns = new Button[3];
+            TextBlock[] tabLbls = new TextBlock[3];
+            string[] tabTitles = { "🎨 Görünüm", "✨ Ek Widget'lar", "🧩 Modül Düzeni" };
+            string[] tabTips = {
+                "Tema rengi, saydamlık ve boyut ayarları",
+                "Google Takvim ve Timer Widget eklentileri",
+                "Ana widget modül sıralaması ve telemetri öğeleri"
+            };
+            for (int ti = 0; ti < 3; ti++)
+            {
+                Button tb = CreateStyledIconButton("Transparent", "Transparent", tabTips[ti]);
+                tb.Padding = new Thickness(6, 6, 6, 6);
+                tb.Margin = new Thickness(ti == 0 ? 0 : 2, 0, ti == 2 ? 0 : 2, 0);
+                TextBlock lbl = new TextBlock
+                {
+                    Text = tabTitles[ti],
+                    FontSize = 11,
+                    FontWeight = FontWeights.SemiBold,
+                    TextTrimming = TextTrimming.CharacterEllipsis
+                };
+                tb.Content = lbl;
+                tabBtns[ti] = tb;
+                tabLbls[ti] = lbl;
+                tabBar.Children.Add(tb);
+            }
+            tabShell.Child = tabBar;
+            Grid.SetRow(tabShell, 1);
+            rootLayout.Children.Add(tabShell);
 
-            Button btnTabLayout = CreateStyledIconButton("#26201C", "#4A3C34", "Modülleri Göster/Gizle ve Sürükleyerek Sırala");
-            btnTabLayout.Margin = new Thickness(4, 0, 0, 0);
-            btnTabLayout.Padding = new Thickness(8, 6, 8, 6);
-            TextBlock txtTabLay = new TextBlock { Text = "🧩 Düzen & Modüller", FontSize = 11.5, FontWeight = FontWeights.SemiBold };
-            btnTabLayout.Content = txtTabLay;
+            // Row 2: Smooth ScrollViewer containing active tab stack
+            ScrollViewer settingsScroll = new ScrollViewer
+            {
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                PanningMode = PanningMode.VerticalOnly,
+                Padding = new Thickness(0, 0, 4, 0)
+            };
+            Grid.SetRow(settingsScroll, 2);
+            rootLayout.Children.Add(settingsScroll);
 
-            tabBar.Children.Add(btnTabGeneral);
-            tabBar.Children.Add(btnTabLayout);
-            st.Children.Add(tabBar);
+            StackPanel scrollContentHost = new StackPanel { Margin = new Thickness(0, 0, 2, 4) };
+            settingsScroll.Content = scrollContentHost;
 
-            StackPanel tabGeneralPanel = new StackPanel();
-            StackPanel tabLayoutPanel = new StackPanel();
+            StackPanel[] tabPanels = new StackPanel[] { new StackPanel(), new StackPanel(), new StackPanel() };
+            scrollContentHost.Children.Add(tabPanels[0]);
+            scrollContentHost.Children.Add(tabPanels[1]);
+            scrollContentHost.Children.Add(tabPanels[2]);
 
             Action syncTabsUi = () =>
             {
-                bool isGen = (currentSettingsTab == 0);
-                tabGeneralPanel.Visibility = isGen ? Visibility.Visible : Visibility.Collapsed;
-                tabLayoutPanel.Visibility = isGen ? Visibility.Collapsed : Visibility.Visible;
-
-                btnTabGeneral.Background = HexBrush(isGen ? "#38281E" : "#241E1B");
-                btnTabGeneral.BorderBrush = HexBrush(isGen ? accentColorHex : "#3E322B");
-                txtTabGen.Foreground = HexBrush(isGen ? "#FAF6F2" : "#B8A99E");
-
-                btnTabLayout.Background = HexBrush(!isGen ? "#38281E" : "#241E1B");
-                btnTabLayout.BorderBrush = HexBrush(!isGen ? accentColorHex : "#3E322B");
-                txtTabLay.Foreground = HexBrush(!isGen ? "#FAF6F2" : "#B8A99E");
+                for (int ti = 0; ti < 3; ti++)
+                {
+                    bool active = (currentSettingsTab == ti);
+                    tabPanels[ti].Visibility = active ? Visibility.Visible : Visibility.Collapsed;
+                    tabBtns[ti].Background = HexBrush(active ? "#38281E" : "Transparent");
+                    tabBtns[ti].BorderBrush = HexBrush(active ? accentColorHex : "Transparent");
+                    tabLbls[ti].Foreground = HexBrush(active ? "#FAF6F2" : "#9E8E82");
+                }
             };
-
-            btnTabGeneral.Click += (s, e) => { currentSettingsTab = 0; syncTabsUi(); };
-            btnTabLayout.Click += (s, e) => { currentSettingsTab = 1; syncTabsUi(); };
+            for (int ti = 0; ti < 3; ti++)
+            {
+                int capturedTi = ti;
+                tabBtns[ti].Click += (s, e) =>
+                {
+                    currentSettingsTab = capturedTi;
+                    syncTabsUi();
+                    settingsScroll.ScrollToTop();
+                };
+            }
 
             // =========================================================
             // TAB 0: APPEARANCE & THEME
             // =========================================================
-            tabGeneralPanel.Children.Add(new TextBlock { Text = "Ana Tema Rengi (Renk Seçici / Palet)", Foreground = HexBrush("#C7B9AE"), FontSize = 11.5, Margin = new Thickness(0, 0, 0, 6) });
+            Border colorSecCard = CreateSettingsSectionCard("🎨 Tema Rengi", "Tüm widget çerçeveleri, grafikler ve yıllık ısı haritası bu renge uyarlanır");
+            StackPanel colorSecStack = (StackPanel)colorSecCard.Child;
 
             Border previewSwatch = new Border
             {
@@ -3442,7 +3581,7 @@ namespace OpenWidget
             TextBox txtHexInput = new TextBox
             {
                 Text = accentColorHex,
-                Background = HexBrush("#2A221E"),
+                Background = HexBrush("#1C1714"),
                 Foreground = HexBrush("#FAF6F2"),
                 BorderBrush = HexBrush("#4A3C34"),
                 BorderThickness = new Thickness(1),
@@ -3451,15 +3590,16 @@ namespace OpenWidget
                 VerticalContentAlignment = VerticalAlignment.Center
             };
 
-            // Interactive 2D Spectrum + Hue Color Picker Canvas
-            tabGeneralPanel.Children.Add(CreateInteractiveSpectrumPicker(accentColorHex, (pickedHex) =>
+            FrameworkElement spectrumPicker = CreateInteractiveSpectrumPicker(accentColorHex, (pickedHex) =>
             {
                 txtHexInput.Text = pickedHex;
                 previewSwatch.Background = HexBrush(pickedHex);
                 ApplyTheme(pickedHex, bgOpacityPercent);
                 card.BorderBrush = HexBrush(pickedHex);
                 syncTabsUi();
-            }));
+            });
+            spectrumPicker.HorizontalAlignment = HorizontalAlignment.Center;
+            colorSecStack.Children.Add(spectrumPicker);
 
             Grid colorCustomRow = new Grid { Margin = new Thickness(0, 0, 0, 10) };
             colorCustomRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -3522,11 +3662,11 @@ namespace OpenWidget
             };
             Grid.SetColumn(btnWinPalette, 3);
             colorCustomRow.Children.Add(btnWinPalette);
-            tabGeneralPanel.Children.Add(colorCustomRow);
+            colorSecStack.Children.Add(colorCustomRow);
 
             string[] presets = { "#E2925C", "#D97706", "#C08457", "#E07A5F", "#10B981", "#38BDF8", "#A78BFA", "#F43F5E" };
             string[] presetNames = { "Varsayılan (#E2925C)", "Kehribar", "Bronz Kahve", "Mercan", "Zümrüt", "Gökyüzü", "Lavanta", "Yakut" };
-            UniformGrid swatchGrid = new UniformGrid { Columns = 8, Margin = new Thickness(0, 0, 0, 14) };
+            UniformGrid swatchGrid = new UniformGrid { Columns = 8 };
             for (int i = 0; i < presets.Length; i++)
             {
                 string hex = presets[i];
@@ -3551,16 +3691,21 @@ namespace OpenWidget
                 };
                 swatchGrid.Children.Add(sw);
             }
-            tabGeneralPanel.Children.Add(swatchGrid);
+            colorSecStack.Children.Add(swatchGrid);
+            tabPanels[0].Children.Add(colorSecCard);
 
-            Grid opRow = new Grid { Margin = new Thickness(0, 0, 0, 6) };
+            // Opacity & Window Controls Card
+            Border opSecCard = CreateSettingsSectionCard("🪟 Saydamlık & Pencere", "Arka plan opaklığını ve ana widget yüksekliğini buradan ayarlayın");
+            StackPanel opSecStack = (StackPanel)opSecCard.Child;
+
+            Grid opRow = new Grid { Margin = new Thickness(0, 0, 0, 4) };
             opRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             opRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            opRow.Children.Add(new TextBlock { Text = "Arka Plan Opaklığı (Saydamlık)", Foreground = HexBrush("#C7B9AE"), FontSize = 11.5 });
+            opRow.Children.Add(new TextBlock { Text = "Arka Plan Opaklığı", Foreground = HexBrush("#C7B9AE"), FontSize = 11.5 });
             TextBlock txtOpVal = new TextBlock { Text = "%" + bgOpacityPercent, Foreground = HexBrush("#FAF6F2"), FontSize = 12, FontWeight = FontWeights.Bold };
             Grid.SetColumn(txtOpVal, 1);
             opRow.Children.Add(txtOpVal);
-            tabGeneralPanel.Children.Add(opRow);
+            opSecStack.Children.Add(opRow);
 
             Slider slOpacity = CreateModernSlider(accentColorHex, bgOpacityPercent);
             slOpacity.Minimum = 30;
@@ -3572,29 +3717,30 @@ namespace OpenWidget
                 txtOpVal.Text = "%" + v;
                 ApplyTheme(accentColorHex, v);
             };
-            tabGeneralPanel.Children.Add(slOpacity);
+            opSecStack.Children.Add(slOpacity);
 
-            Button btnFit = CreateStyledIconButton("#2A221E", "#4A3C34", "Widget boyunu içerik kadar küçült/sığdır");
-            btnFit.Margin = new Thickness(0, 8, 0, 0);
+            Button btnFit = CreateStyledIconButton("#2E241E", "#4A3C34", "Widget boyunu içerik kadar küçült/sığdır");
+            btnFit.Margin = new Thickness(0, 4, 0, 0);
             btnFit.Padding = new Thickness(10, 7, 10, 7);
-            btnFit.Content = new TextBlock { Text = "📐 Widget Yüksekliğini İçeriğe Sığdır (Boşluğu Kaldır)", Foreground = HexBrush("#FAF6F2"), FontSize = 11.5, FontWeight = FontWeights.Medium };
+            btnFit.Content = new TextBlock { Text = "📐 Widget Yüksekliğini İçeriğe Sığdır", Foreground = HexBrush("#FAF6F2"), FontSize = 11.5, FontWeight = FontWeights.Medium };
             btnFit.Click += (s, e) =>
             {
                 FitHeightToContentIfCompact();
                 ShowToast("Yükseklik içeriğe göre optimize edildi");
             };
-            tabGeneralPanel.Children.Add(btnFit);
+            opSecStack.Children.Add(btnFit);
+            tabPanels[0].Children.Add(opSecCard);
 
             // =========================================================
-            // TAB 1: LAYOUT, DRAG-AND-DROP REORDERING & TELEMETRY SUB-TOGGLES
+            // TAB 1: COMPANION WIDGETS (CALENDAR & TIMER)
             // =========================================================
             Border calCompanionCard = new Border
             {
-                CornerRadius = new CornerRadius(9),
-                Background = HexBrush(showCalendarWidget ? "#2C221C" : "#1F1916"),
-                BorderBrush = HexBrush(showCalendarWidget ? accentColorHex : "#3A2F29"),
+                CornerRadius = new CornerRadius(11),
+                Background = HexBrush(showCalendarWidget ? "#2C221C" : "#221C18"),
+                BorderBrush = HexBrush(showCalendarWidget ? accentColorHex : "#3B302A"),
                 BorderThickness = new Thickness(1.2),
-                Padding = new Thickness(10, 8, 10, 8),
+                Padding = new Thickness(13, 11, 13, 11),
                 Margin = new Thickness(0, 0, 0, 10)
             };
             StackPanel calCompanionStack = new StackPanel();
@@ -3602,30 +3748,33 @@ namespace OpenWidget
             calCompanionTop.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             calCompanionTop.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-            StackPanel calCompanionInfo = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            StackPanel calCompanionInfo = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0) };
             calCompanionInfo.Children.Add(new TextBlock
             {
-                Text = "📅 Google Takvim Widget'ı (Ayrı Masaüstü Eklentisi)",
+                Text = "📅 Google Takvim Widget'ı",
                 Foreground = HexBrush("#FAF6F2"),
-                FontSize = 11.5,
-                FontWeight = FontWeights.Bold
+                FontSize = 12,
+                FontWeight = FontWeights.Bold,
+                TextWrapping = TextWrapping.Wrap
             });
             calCompanionInfo.Children.Add(new TextBlock
             {
-                Text = "Apple Calendar tarzı bağımsız masaüstü penceresi (safaacikgoz43@gmail.com)",
-                Foreground = HexBrush("#A8988C"),
-                FontSize = 10,
-                Margin = new Thickness(0, 1, 0, 0)
+                Text = "Aylık takvim ve günlük etkinlik/sınav takibi için ayrı masaüstü penceresi",
+                Foreground = HexBrush("#9E8E82"),
+                FontSize = 10.5,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 2, 0, 0)
             });
             Grid.SetColumn(calCompanionInfo, 0);
             calCompanionTop.Children.Add(calCompanionInfo);
 
             Button btnToggleCalWidget = CreateStyledIconButton(
-                showCalendarWidget ? "#38281E" : "#221C18",
+                showCalendarWidget ? "#38281E" : "#1D1815",
                 showCalendarWidget ? accentColorHex : "#3E322B",
                 "Ayrı Google Takvim masaüstü widget'ını aç veya kapat");
-            btnToggleCalWidget.Padding = new Thickness(10, 4, 10, 4);
-            btnToggleCalWidget.MinWidth = 68;
+            btnToggleCalWidget.Padding = new Thickness(11, 5, 11, 5);
+            btnToggleCalWidget.MinWidth = 72;
+            btnToggleCalWidget.VerticalAlignment = VerticalAlignment.Center;
             TextBlock txtToggleCalWidget = new TextBlock
             {
                 Text = showCalendarWidget ? "✓ Açık" : "Kapalı",
@@ -3637,9 +3786,9 @@ namespace OpenWidget
             btnToggleCalWidget.Click += (s, e) =>
             {
                 SetCalendarWidgetVisible(!showCalendarWidget);
-                calCompanionCard.Background = HexBrush(showCalendarWidget ? "#2C221C" : "#1F1916");
-                calCompanionCard.BorderBrush = HexBrush(showCalendarWidget ? accentColorHex : "#3A2F29");
-                btnToggleCalWidget.Background = HexBrush(showCalendarWidget ? "#38281E" : "#221C18");
+                calCompanionCard.Background = HexBrush(showCalendarWidget ? "#2C221C" : "#221C18");
+                calCompanionCard.BorderBrush = HexBrush(showCalendarWidget ? accentColorHex : "#3B302A");
+                btnToggleCalWidget.Background = HexBrush(showCalendarWidget ? "#38281E" : "#1D1815");
                 btnToggleCalWidget.BorderBrush = HexBrush(showCalendarWidget ? accentColorHex : "#3E322B");
                 txtToggleCalWidget.Text = showCalendarWidget ? "✓ Açık" : "Kapalı";
                 txtToggleCalWidget.Foreground = HexBrush(showCalendarWidget ? "#FAF6F2" : "#8E7F74");
@@ -3648,28 +3797,36 @@ namespace OpenWidget
             calCompanionTop.Children.Add(btnToggleCalWidget);
             calCompanionStack.Children.Add(calCompanionTop);
 
-            Grid calIcalRow = new Grid { Margin = new Thickness(0, 6, 0, 0) };
+            calCompanionStack.Children.Add(new TextBlock
+            {
+                Text = "Google Takvim Gizli iCal (.ics) Adresi",
+                Foreground = HexBrush("#B8A99E"),
+                FontSize = 10.5,
+                Margin = new Thickness(0, 10, 0, 4)
+            });
+            Grid calIcalRow = new Grid();
             calIcalRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             calIcalRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
             TextBox txtIcalUrl = new TextBox
             {
                 Text = string.IsNullOrEmpty(calendarSecretIcalUrl) ? "" : calendarSecretIcalUrl,
-                Background = HexBrush("#221B17"),
+                Background = HexBrush("#1C1714"),
                 Foreground = HexBrush("#E6DDD6"),
                 BorderBrush = HexBrush("#3E322B"),
                 BorderThickness = new Thickness(1),
-                Padding = new Thickness(6, 3, 6, 3),
+                Padding = new Thickness(7, 4, 7, 4),
                 FontSize = 10.5,
-                ToolTip = "İsteğe bağlı: Telefondan anlık senkron için Google Takvim Ayarları -> 'iCal biçimindeki gizli adres' (.ics) linkini buraya yapıştırabilirsiniz"
+                VerticalContentAlignment = VerticalAlignment.Center,
+                ToolTip = "Google Takvim Ayarları -> 'iCal biçimindeki gizli adres' (.ics) linkini buraya yapıştırabilirsiniz"
             };
             Grid.SetColumn(txtIcalUrl, 0);
             calIcalRow.Children.Add(txtIcalUrl);
 
             Button btnSaveIcal = CreateStyledIconButton("#2E241E", "#4A3C34", "Gizli iCal (.ics) adresini kaydet ve senkronize et");
-            btnSaveIcal.Margin = new Thickness(5, 0, 0, 0);
-            btnSaveIcal.Padding = new Thickness(8, 3, 8, 3);
-            btnSaveIcal.Content = new TextBlock { Text = "🔗 iCal Kaydet", Foreground = HexBrush("#E6DDD6"), FontSize = 10, FontWeight = FontWeights.SemiBold };
+            btnSaveIcal.Margin = new Thickness(6, 0, 0, 0);
+            btnSaveIcal.Padding = new Thickness(10, 4, 10, 4);
+            btnSaveIcal.Content = new TextBlock { Text = "🔗 Kaydet", Foreground = HexBrush("#E6DDD6"), FontSize = 10.5, FontWeight = FontWeights.SemiBold };
             btnSaveIcal.Click += (s, e) =>
             {
                 calendarSecretIcalUrl = txtIcalUrl.Text.Trim();
@@ -3682,46 +3839,50 @@ namespace OpenWidget
             calCompanionStack.Children.Add(calIcalRow);
 
             calCompanionCard.Child = calCompanionStack;
-            tabLayoutPanel.Children.Add(calCompanionCard);
+            tabPanels[1].Children.Add(calCompanionCard);
 
-            // Standalone Timer Widgeti Companion Toggle Card
+            // Standalone Timer Widgeti Companion Card
             Border timerCompanionCard = new Border
             {
-                CornerRadius = new CornerRadius(9),
-                Background = HexBrush(showTimerWidget ? "#2C221C" : "#1F1916"),
-                BorderBrush = HexBrush(showTimerWidget ? accentColorHex : "#3A2F29"),
+                CornerRadius = new CornerRadius(11),
+                Background = HexBrush(showTimerWidget ? "#2C221C" : "#221C18"),
+                BorderBrush = HexBrush(showTimerWidget ? accentColorHex : "#3B302A"),
                 BorderThickness = new Thickness(1.2),
-                Padding = new Thickness(10, 8, 10, 8),
+                Padding = new Thickness(13, 11, 13, 11),
                 Margin = new Thickness(0, 0, 0, 10)
             };
+            StackPanel timerCompStack = new StackPanel();
             Grid timerCompanionTop = new Grid();
             timerCompanionTop.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             timerCompanionTop.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-            StackPanel timerCompanionInfo = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            StackPanel timerCompanionInfo = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0) };
             timerCompanionInfo.Children.Add(new TextBlock
             {
-                Text = "⏱ Timer Widgeti (Ayrı Masaüstü Eklentisi)",
+                Text = "⏱ Timer Widgeti",
                 Foreground = HexBrush("#FAF6F2"),
-                FontSize = 11.5,
-                FontWeight = FontWeights.Bold
+                FontSize = 12,
+                FontWeight = FontWeights.Bold,
+                TextWrapping = TextWrapping.Wrap
             });
             timerCompanionInfo.Children.Add(new TextBlock
             {
-                Text = "Default / Eğlence / Ders Pomodoro modları ve yıllık aktivite ısı haritası",
-                Foreground = HexBrush("#A8988C"),
-                FontSize = 10,
-                Margin = new Thickness(0, 1, 0, 0)
+                Text = "Zamanlayıcı, otomatik oyun algılayan Eğlence Modu, Pomodoro ve yıllık aktivite haritası",
+                Foreground = HexBrush("#9E8E82"),
+                FontSize = 10.5,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 2, 0, 0)
             });
             Grid.SetColumn(timerCompanionInfo, 0);
             timerCompanionTop.Children.Add(timerCompanionInfo);
 
             Button btnToggleTimerWidget = CreateStyledIconButton(
-                showTimerWidget ? "#38281E" : "#221C18",
+                showTimerWidget ? "#38281E" : "#1D1815",
                 showTimerWidget ? accentColorHex : "#3E322B",
                 "Ayrı Timer Widgeti penceresini aç veya kapat");
-            btnToggleTimerWidget.Padding = new Thickness(10, 4, 10, 4);
-            btnToggleTimerWidget.MinWidth = 68;
+            btnToggleTimerWidget.Padding = new Thickness(11, 5, 11, 5);
+            btnToggleTimerWidget.MinWidth = 72;
+            btnToggleTimerWidget.VerticalAlignment = VerticalAlignment.Center;
             TextBlock txtToggleTimerWidget = new TextBlock
             {
                 Text = showTimerWidget ? "✓ Açık" : "Kapalı",
@@ -3733,27 +3894,26 @@ namespace OpenWidget
             btnToggleTimerWidget.Click += (s, e) =>
             {
                 SetTimerWidgetVisible(!showTimerWidget);
-                timerCompanionCard.Background = HexBrush(showTimerWidget ? "#2C221C" : "#1F1916");
-                timerCompanionCard.BorderBrush = HexBrush(showTimerWidget ? accentColorHex : "#3A2F29");
-                btnToggleTimerWidget.Background = HexBrush(showTimerWidget ? "#38281E" : "#221C18");
+                timerCompanionCard.Background = HexBrush(showTimerWidget ? "#2C221C" : "#221C18");
+                timerCompanionCard.BorderBrush = HexBrush(showTimerWidget ? accentColorHex : "#3B302A");
+                btnToggleTimerWidget.Background = HexBrush(showTimerWidget ? "#38281E" : "#1D1815");
                 btnToggleTimerWidget.BorderBrush = HexBrush(showTimerWidget ? accentColorHex : "#3E322B");
                 txtToggleTimerWidget.Text = showTimerWidget ? "✓ Açık" : "Kapalı";
                 txtToggleTimerWidget.Foreground = HexBrush(showTimerWidget ? "#FAF6F2" : "#8E7F74");
             };
             Grid.SetColumn(btnToggleTimerWidget, 1);
             timerCompanionTop.Children.Add(btnToggleTimerWidget);
-            timerCompanionCard.Child = timerCompanionTop;
-            tabLayoutPanel.Children.Add(timerCompanionCard);
+            timerCompStack.Children.Add(timerCompanionTop);
+            timerCompanionCard.Child = timerCompStack;
+            tabPanels[1].Children.Add(timerCompanionCard);
 
-            tabLayoutPanel.Children.Add(new TextBlock
-            {
-                Text = "Modül Sıralaması & Görünürlük (Tut-Sürükle veya ▲/▼ ile Sırala)",
-                Foreground = HexBrush("#C7B9AE"),
-                FontSize = 11.5,
-                Margin = new Thickness(0, 0, 0, 6)
-            });
+            // =========================================================
+            // TAB 2: MODULE ORDER, VISIBILITY & TELEMETRY SUB-TOGGLES
+            // =========================================================
+            Border modulesOrderCard = CreateSettingsSectionCard("🧩 Ana Widget Modülleri", "Tut-sürükle veya ▲/▼ ile modülleri sıralayın, sağdaki butonla gizleyip açın");
+            StackPanel modulesOrderCardStack = (StackPanel)modulesOrderCard.Child;
 
-            StackPanel modulesOrderList = new StackPanel { Margin = new Thickness(0, 0, 0, 8) };
+            StackPanel modulesOrderList = new StackPanel();
             int draggingModuleIdx = -1;
             Action rebuildModulesOrderUi = null;
 
@@ -3770,11 +3930,11 @@ namespace OpenWidget
                     Border rowBorder = new Border
                     {
                         CornerRadius = new CornerRadius(8),
-                        Background = HexBrush(isDraggingThis ? "#3A2B21" : (enabled ? "#28201C" : "#1D1815")),
+                        Background = HexBrush(isDraggingThis ? "#3A2B21" : (enabled ? "#1E1916" : "#181412")),
                         BorderBrush = HexBrush(isDraggingThis ? accentColorHex : (enabled ? "#4A3C34" : "#2E2520")),
                         BorderThickness = new Thickness(isDraggingThis ? 1.5 : 1),
-                        Padding = new Thickness(10, 5, 8, 5),
-                        Margin = new Thickness(0, 0, 0, 4),
+                        Padding = new Thickness(10, 6, 8, 6),
+                        Margin = new Thickness(0, 0, 0, 5),
                         Cursor = Cursors.SizeNS,
                         ToolTip = "Sıralamayı değiştirmek için basılı tutup yukarı/aşağı sürükleyin"
                     };
@@ -3803,13 +3963,15 @@ namespace OpenWidget
                         Foreground = HexBrush(enabled ? "#FAF6F2" : "#7E7067"),
                         FontSize = 11.5,
                         FontWeight = FontWeights.SemiBold,
-                        VerticalAlignment = VerticalAlignment.Center
+                        VerticalAlignment = VerticalAlignment.Center,
+                        TextTrimming = TextTrimming.CharacterEllipsis,
+                        Margin = new Thickness(0, 0, 8, 0)
                     };
                     Grid.SetColumn(title, 1);
                     rg.Children.Add(title);
 
-                    Button btnUp = CreateStyledIconButton("#221C18", "#3E322B", "Yukarı Taşı");
-                    btnUp.Padding = new Thickness(6, 2, 6, 2);
+                    Button btnUp = CreateStyledIconButton("#26201C", "#3E322B", "Yukarı Taşı");
+                    btnUp.Padding = new Thickness(6, 3, 6, 3);
                     btnUp.Margin = new Thickness(0, 0, 3, 0);
                     btnUp.IsEnabled = (idx > 0);
                     btnUp.Opacity = (idx > 0) ? 1.0 : 0.35;
@@ -3830,8 +3992,8 @@ namespace OpenWidget
                     Grid.SetColumn(btnUp, 2);
                     rg.Children.Add(btnUp);
 
-                    Button btnDown = CreateStyledIconButton("#221C18", "#3E322B", "Aşağı Taşı");
-                    btnDown.Padding = new Thickness(6, 2, 6, 2);
+                    Button btnDown = CreateStyledIconButton("#26201C", "#3E322B", "Aşağı Taşı");
+                    btnDown.Padding = new Thickness(6, 3, 6, 3);
                     btnDown.Margin = new Thickness(0, 0, 6, 0);
                     btnDown.IsEnabled = (idx < sectionOrder.Count - 1);
                     btnDown.Opacity = (idx < sectionOrder.Count - 1) ? 1.0 : 0.35;
@@ -3853,11 +4015,11 @@ namespace OpenWidget
                     rg.Children.Add(btnDown);
 
                     Button btnToggle = CreateStyledIconButton(
-                        enabled ? "#38281E" : "#221C18",
+                        enabled ? "#38281E" : "#1D1815",
                         enabled ? accentColorHex : "#3E322B",
                         "Bu modülü göster veya gizle");
-                    btnToggle.Padding = new Thickness(9, 2.5, 9, 2.5);
-                    btnToggle.MinWidth = 58;
+                    btnToggle.Padding = new Thickness(9, 3, 9, 3);
+                    btnToggle.MinWidth = 60;
                     btnToggle.Content = new TextBlock
                     {
                         Text = enabled ? "✓ Açık" : "Kapalı",
@@ -3925,20 +4087,14 @@ namespace OpenWidget
             };
 
             rebuildModulesOrderUi();
-            tabLayoutPanel.Children.Add(modulesOrderList);
-
-            tabLayoutPanel.Children.Add(new Border { Height = 1, Background = HexBrush("#362C26"), Margin = new Thickness(0, 2, 0, 8) });
+            modulesOrderCardStack.Children.Add(modulesOrderList);
+            tabPanels[2].Children.Add(modulesOrderCard);
 
             // Telemetry Sub-Items Visibility Section
-            tabLayoutPanel.Children.Add(new TextBlock
-            {
-                Text = "Telemetri İçeriği (Hangi Donanım Verileri Gösterilsin?)",
-                Foreground = HexBrush("#C7B9AE"),
-                FontSize = 11.5,
-                Margin = new Thickness(0, 0, 0, 6)
-            });
+            Border teleSubCard = CreateSettingsSectionCard("📊 Telemetri İçeriği", "Ana widget içindeki hangi donanım sensörlerinin gösterileceğini seçin");
+            StackPanel teleSubStack = (StackPanel)teleSubCard.Child;
 
-            UniformGrid teleSubGrid = new UniformGrid { Columns = 2, Margin = new Thickness(0, 0, 0, 8) };
+            UniformGrid teleSubGrid = new UniformGrid { Columns = 2 };
             Action rebuildTeleSubGrid = null;
             rebuildTeleSubGrid = () =>
             {
@@ -3960,22 +4116,26 @@ namespace OpenWidget
                     string tk = tKeys[idx];
                     bool on = tStates[idx];
 
-                    Button bSub = CreateStyledIconButton(on ? "#38281E" : "#221C18", on ? accentColorHex : "#3A2F29", tLabels[idx]);
-                    bSub.Margin = new Thickness(idx % 2 == 0 ? 0 : 3, 0, idx % 2 == 0 ? 3 : 0, 5);
-                    bSub.Padding = new Thickness(8, 5, 8, 5);
+                    Button bSub = CreateStretchSettingsButton(on ? "#38281E" : "#1D1815", on ? accentColorHex : "#3A2F29", tLabels[idx]);
+                    bSub.Margin = new Thickness(idx % 2 == 0 ? 0 : 3, 0, idx % 2 == 0 ? 3 : 0, 6);
+                    bSub.Padding = new Thickness(9, 6, 9, 6);
 
-                    Grid bg = new Grid { Width = 156 };
+                    Grid bg = new Grid();
                     bg.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                     bg.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-                    bg.Children.Add(new TextBlock
+                    TextBlock lbl = new TextBlock
                     {
                         Text = tLabels[idx],
                         Foreground = HexBrush(on ? "#FAF6F2" : "#8E7F74"),
                         FontSize = 11,
                         FontWeight = FontWeights.SemiBold,
-                        VerticalAlignment = VerticalAlignment.Center
-                    });
+                        VerticalAlignment = VerticalAlignment.Center,
+                        TextTrimming = TextTrimming.CharacterEllipsis,
+                        Margin = new Thickness(0, 0, 8, 0)
+                    };
+                    Grid.SetColumn(lbl, 0);
+                    bg.Children.Add(lbl);
 
                     TextBlock stateBadge = new TextBlock
                     {
@@ -4007,24 +4167,22 @@ namespace OpenWidget
                 }
             };
             rebuildTeleSubGrid();
-            tabLayoutPanel.Children.Add(teleSubGrid);
+            teleSubStack.Children.Add(teleSubGrid);
 
-            Button btnFitLayout = CreateStyledIconButton("#2A221E", "#4A3C34", "Widget boyunu seçili modüllere göre otomatik sığdır");
-            btnFitLayout.Margin = new Thickness(0, 2, 0, 0);
+            Button btnFitLayout = CreateStyledIconButton("#2E241E", "#4A3C34", "Widget boyunu seçili modüllere göre otomatik sığdır");
+            btnFitLayout.Margin = new Thickness(0, 4, 0, 0);
             btnFitLayout.Padding = new Thickness(10, 7, 10, 7);
-            btnFitLayout.Content = new TextBlock { Text = "📐 Widget Yüksekliğini Seçili Modüllere Göre Sığdır", Foreground = HexBrush("#FAF6F2"), FontSize = 11.5, FontWeight = FontWeights.Medium };
+            btnFitLayout.Content = new TextBlock { Text = "📐 Widget Yüksekliğini Modüllere Göre Sığdır", Foreground = HexBrush("#FAF6F2"), FontSize = 11.5, FontWeight = FontWeights.Medium };
             btnFitLayout.Click += (s, e) =>
             {
                 FitHeightToContentIfCompact();
                 ShowToast("Yükseklik aktif modüllere göre optimize edildi");
             };
-            tabLayoutPanel.Children.Add(btnFitLayout);
+            teleSubStack.Children.Add(btnFitLayout);
+            tabPanels[2].Children.Add(teleSubCard);
 
             syncTabsUi();
-            st.Children.Add(tabGeneralPanel);
-            st.Children.Add(tabLayoutPanel);
-
-            card.Child = st;
+            card.Child = rootLayout;
             settingsWindow.Content = card;
             settingsWindow.Show();
         }
