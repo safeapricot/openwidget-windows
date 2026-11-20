@@ -1053,7 +1053,8 @@ namespace OpenWidget
             { "left4dead2", "Left 4 Dead 2" },
             { "tf_win64", "Team Fortress 2" },
             { "brawlhalla", "Brawlhalla" },
-            { "osu!", "osu!" }
+            { "osu!", "osu!" },
+            { "xerogame", "Xero" }
         };
 
         private class DailyActivityRecord
