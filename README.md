@@ -10,7 +10,7 @@
 
 ## One-Click Download
 
-[![Download OpenWidget ZIP](https://img.shields.io/badge/DOWNLOAD%20ZIP-OpenWidget%20v2.2.0-E2925C?style=for-the-badge&logo=windows)](https://github.com/safeapricot/openwidget-windows/releases/download/v2.2.0/OpenWidget-v2.2.0.zip)
+[![Download OpenWidget ZIP](https://img.shields.io/badge/DOWNLOAD%20ZIP-OpenWidget%20v3.0-E2925C?style=for-the-badge&logo=windows)](https://github.com/safeapricot/openwidget-windows/releases/download/v3.0/OpenWidget-v3.0.zip)
 
 > **Quick Setup:** Click the orange button above to immediately download the `.zip` package, extract it to a folder, and run **`OpenWidget.exe`**.
 
@@ -24,16 +24,17 @@
 
 ## Overview
 
-**OpenWidget** is a single-file, zero-dependency native Windows desktop widget written in C# & WPF with direct Win32, DisplayConfig SDR/DDC, USB HID, CoreAudio COM, and NVIDIA NVML C-API calls. Unlike Electron or web-based widgets that consume 300–500 MB of RAM, OpenWidget is compiled into a **~332 KB native executable** (including embedded multi-resolution icons) and uses minimal RAM with **0.0% idle CPU**.
+**OpenWidget** is a single-file, zero-dependency native Windows desktop widget written in C# & WPF with direct Win32, DisplayConfig SDR/DDC, USB HID, CoreAudio COM, and NVIDIA NVML C-API calls. Unlike Electron or web-based widgets that consume 300–500 MB of RAM, OpenWidget is compiled into a **~380 KB native executable** (including embedded multi-resolution icons) and uses minimal RAM with **0.0% idle CPU**.
 
 ### Key Features
 - **Interactive First-Run Setup Wizard:**
   - Automatically launches on first run (or via `--setup`).
   - **Weather Location Choice:** Auto-detect via **GPS / Location Services**, or type any **City / District** worldwide (e.g., `London`, `New York`, `Istanbul / Kadikoy`).
   - **Optional Companion Widgets, Theme Color & Shortcuts:** Pick your favorite accent color, optionally enable Calendar/Timer widgets (off by default), create a Desktop shortcut, and enable Instant Windows Startup.
-- **Optional Calendar & Timer Companion Widgets (Default Off):**
-  - **Calendar Widget:** Floating mini-month calendar & daily agenda with private iCal (`.ics`) feed support and quick event entry. Toggle anytime via **Settings -> Widgets** or System Tray.
-  - **Timer Widgeti:** Includes Stopwatch (`Default`), Gaming/Entertainment mode (with optional automatic game detection), customizable Pomodoro focus/break mode with completion notifications, daily counters, and an accent-themed yearly activity heatmap.
+- **Optional Calendar, Timer & Taskbar Device Widgets (Default Off):**
+  - **Calendar Widget:** Floating mini-month calendar & daily agenda with private iCal (`.ics`) feed support, multi-monitor position memory, and quick event entry. Toggle anytime via **Settings -> Widgets** or System Tray.
+  - **Timer Widgeti:** Includes Stopwatch (`Default`), Gaming/Entertainment mode (with automatic game detection), customizable Pomodoro focus mode, custom Study/Gaming colors, **10h proportional day squares** (with **8h PC uptime saturation** for the remaining default portion), a **Detailed Day View** showing per-game breakdown, and **`[+]` manual time entry** next to the day header.
+  - **Taskbar Wireless Battery Indicator:** Optionally display live connected mouse & headset battery percentages directly on the Windows taskbar (**Settings -> Widgets**).
 - **Modern 3-Tab Scrollable Settings Window (`Appearance`, `Widgets`, `Modules`):**
   - Redesigned with a sticky header, 3 clean tabs, responsive non-overlapping cards, and sleek theme-colored thin scrollbars and sliders.
 - **Instant Windows Boot & Cold-Launch Optimization:**
@@ -86,9 +87,10 @@ OpenWidget compiles out-of-the-box using the native .NET Framework 64-bit compil
   - İlk açılışta otomatik olarak karşınıza çıkar (`--setup`):
   - **Hava Durumu Konumu:** İster **Otomatik Algıla (GPS / Konum Servisi)** seçin, ister **Sabit İl / İlçe** (Örn: `İstanbul / Kadıköy`, `Ankara`, `Kütahya / Merkez`) yazın.
   - **İsteğe Bağlı Ek Widget'lar, Tema ve Kısayollar:** Başlangıç tema renginizi seçin, isterseniz Takvim ve Timer widget'larını açın (varsayılan kapalıdır), Masaüstü kısayolu ve hızlı Windows başlangıç açılışını tek tıkla tamamlayın.
-- **İsteğe Bağlı Takvim & Timer Widget'ları (Varsayılan Kapalı):**
-  - **Takvim Widget'ı:** Aylık mini takvim görünümü, günlük ajanda, `.ics` / iCal abonelik desteği ve hızlı etkinlik ekleme — istediğiniz zaman **Ayarlar → Ek Widget'lar** veya Sistem Tepsisi'nden açıp kapatabilirsiniz.
-  - **Timer Widgeti:** Normal zamanlayıcı, otomatik oyun algılamalı Eğlence/Oyun modu, bildirimli ve özelleştirilebilir Pomodoro Ders modu, günlük sayaçlar ve tema rengine uyumlu yıllık aktivite ısı haritası.
+- **İsteğe Bağlı Takvim, Timer & Taskbar Cihaz Göstergesi (Varsayılan Kapalı):**
+  - **Takvim Widget'ı:** Aylık mini takvim görünümü, günlük ajanda, `.ics` / iCal abonelik desteği, çoklu monitör konum hafızası ve hızlı etkinlik ekleme — istediğiniz zaman **Ayarlar → Ek Widget'lar** veya Sistem Tepsisi'nden açıp kapatabilirsiniz.
+  - **Timer Widgeti:** Normal zamanlayıcı, otomatik oyun algılamalı Eğlence/Oyun modu, bildirimli Pomodoro Ders modu, özelleştirilebilir Ders/Oyun renkleri, **10 saat kapasiteli oranlı gün kareleri** (kalan kısım için **8 saat PC açık kalma doygunluk** ölçeği), oyun bazlı **Gün Detayı** görünümü ve gün başlığı yanındaki **`[+]`** butonu ile manuel süre ekleme.
+  - **Taskbar Kablosuz Pil Göstergesi:** Bağlı kablosuz kulaklık ve fare pil yüzdelerini doğrudan Windows görev çubuğunda gösterir (**Ayarlar → Ek Widget'lar**).
 - **Yenilenmiş 3 Sekmeli Ayarlar Menüsü & İnce Tema Renginde Slider/Scrollbar:**
   - Sabit üst başlık, `Görünüm`, `Ek Widget'lar` ve `Modül Düzeni` sekmeleri, kaydırılabilir kart yapısı ve tema rengiyle güncellenen ince slider & kaydırma çubukları.
 - **Hızlı Windows Başlangıcı Optimizasyonu:**
