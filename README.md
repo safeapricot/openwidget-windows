@@ -10,7 +10,7 @@
 
 ## One-Click Download
 
-[![Download OpenWidget ZIP](https://img.shields.io/badge/DOWNLOAD%20ZIP-OpenWidget%20v3.0-E2925C?style=for-the-badge&logo=windows)](https://github.com/safeapricot/openwidget-windows/releases/download/v3.0/OpenWidget-v3.0.zip)
+[![Download OpenWidget ZIP](https://img.shields.io/badge/DOWNLOAD%20ZIP-OpenWidget%20v3.0.1-E2925C?style=for-the-badge&logo=windows)](https://github.com/safeapricot/openwidget-windows/releases/download/v3.0.1/OpenWidget-v3.0.1.zip)
 
 > **Quick Setup:** Click the orange button above to immediately download the `.zip` package, extract it to a folder, and run **`OpenWidget.exe`**.
 
@@ -24,7 +24,7 @@
 
 ## Overview
 
-**OpenWidget** is a single-file, zero-dependency native Windows desktop widget written in C# & WPF with direct Win32, DisplayConfig SDR/DDC, USB HID, CoreAudio COM, and NVIDIA NVML C-API calls. Unlike Electron or web-based widgets that consume 300–500 MB of RAM, OpenWidget is compiled into a **~380 KB native executable** (including embedded multi-resolution icons) and uses minimal RAM with **0.0% idle CPU**.
+**OpenWidget** is a single-file, zero-dependency native Windows desktop widget written in C# & WPF with direct Win32, DisplayConfig SDR/DDC, USB HID, CoreAudio COM, and NVIDIA NVML C-API calls. Unlike Electron or web-based widgets that consume 300–500 MB of RAM, OpenWidget is compiled into a **~394 KB native executable** (including embedded multi-resolution icons) and uses minimal RAM with **0.0% idle CPU**.
 
 ### Key Features
 - **Interactive First-Run Setup Wizard:**
@@ -73,7 +73,7 @@
 ### Building from Source (No Visual Studio Required)
 OpenWidget compiles out-of-the-box using the native .NET Framework 64-bit compiler built into every Windows 10/11 machine:
 ```powershell
-& "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /target:winexe /optimize+ /platform:x64 /win32icon:app.ico /lib:"C:\Windows\Microsoft.NET\Framework64\v4.0.30319\WPF" /r:PresentationCore.dll /r:PresentationFramework.dll /r:WindowsBase.dll /r:System.Xaml.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:System.Device.dll /out:OpenWidget.exe OpenWidget.cs
+& "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /target:winexe /optimize+ /platform:x64 /win32icon:app.ico /lib:"C:\Windows\Microsoft.NET\Framework64\v4.0.30319\WPF" /r:PresentationCore.dll /r:PresentationFramework.dll /r:WindowsBase.dll /r:System.Xaml.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:System.Management.dll /r:System.Device.dll /out:OpenWidget.exe OpenWidget.cs
 ```
 
 ---

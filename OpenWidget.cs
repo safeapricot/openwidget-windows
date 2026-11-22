@@ -21,6 +21,7 @@ using System.Windows.Shapes;
 using System.Windows.Threading;
 using Microsoft.Win32;
 using System.Device.Location;
+using System.Management;
 
 namespace OpenWidget
 {
@@ -219,8 +220,57 @@ namespace OpenWidget
         [DllImport("setupapi.dll", CharSet = CharSet.Auto, SetLastError = true)]
         public static extern bool SetupDiGetDeviceRegistryProperty(IntPtr DeviceInfoSet, ref SP_DEVINFO_DATA DeviceInfoData, uint Property, out uint PropertyRegDataType, StringBuilder PropertyBuffer, uint PropertyBufferSize, out uint RequiredSize);
 
+        [DllImport("setupapi.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern bool SetupDiGetDeviceInstanceIdW(IntPtr DeviceInfoSet, ref SP_DEVINFO_DATA DeviceInfoData, StringBuilder DeviceInstanceId, int DeviceInstanceIdSize, out int RequiredSize);
+
         [DllImport("setupapi.dll")]
         public static extern bool SetupDiDestroyDeviceInfoList(IntPtr DeviceInfoSet);
+
+        [DllImport("cfgmgr32.dll")]
+        public static extern uint CM_Get_DevNode_Status(out uint pulStatus, out uint pulProblemNumber, uint dnDevInst, uint ulFlags);
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct BLUETOOTH_DEVICE_SEARCH_PARAMS
+        {
+            public uint dwSize;
+            public int fReturnAuthenticated;
+            public int fReturnRemembered;
+            public int fReturnUnknown;
+            public int fReturnConnected;
+            public int fIssueInquiry;
+            public byte cTimeoutMultiplier;
+            public IntPtr hRadio;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct BLUETOOTH_SYSTEMTIME
+        {
+            public ushort wYear, wMonth, wDayOfWeek, wDay, wHour, wMinute, wSecond, wMilliseconds;
+        }
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        public struct BLUETOOTH_DEVICE_INFO
+        {
+            public uint dwSize;
+            public ulong Address;
+            public uint ulClassofDevice;
+            [MarshalAs(UnmanagedType.Bool)] public bool fConnected;
+            [MarshalAs(UnmanagedType.Bool)] public bool fRemembered;
+            [MarshalAs(UnmanagedType.Bool)] public bool fAuthenticated;
+            public BLUETOOTH_SYSTEMTIME stLastSeen;
+            public BLUETOOTH_SYSTEMTIME stLastUsed;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 248)]
+            public string szName;
+        }
+
+        [DllImport("bthprops.cpl", SetLastError = true)]
+        public static extern IntPtr BluetoothFindFirstDevice(ref BLUETOOTH_DEVICE_SEARCH_PARAMS pbtsp, ref BLUETOOTH_DEVICE_INFO pbtdi);
+
+        [DllImport("bthprops.cpl", SetLastError = true)]
+        public static extern bool BluetoothFindNextDevice(IntPtr hFind, ref BLUETOOTH_DEVICE_INFO pbtdi);
+
+        [DllImport("bthprops.cpl", SetLastError = true)]
+        public static extern bool BluetoothFindDeviceClose(IntPtr hFind);
 
         [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
         public static extern IntPtr CreateFile(string lpFileName, uint dwDesiredAccess, uint dwShareMode, IntPtr lpSecurityAttributes, int dwCreationDisposition, uint dwFlagsAndAttributes, IntPtr hTemplateFile);
@@ -350,6 +400,149 @@ namespace OpenWidget
             return fallback;
         }
 
+        private static bool IsGenericBluetoothNodeName(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return true;
+            string n = name.Trim();
+            return n.Equals("Bluetooth Device", StringComparison.OrdinalIgnoreCase) ||
+                   n.Equals("Bluetooth Low Energy GATT compliant HID device", StringComparison.OrdinalIgnoreCase) ||
+                   n.Equals("Microsoft Bluetooth Hands-Free Profile AudioGateway role", StringComparison.OrdinalIgnoreCase) ||
+                   n.Equals("HID-compliant consumer control device", StringComparison.OrdinalIgnoreCase) ||
+                   n.Equals("HID-compliant headset", StringComparison.OrdinalIgnoreCase) ||
+                   n.Equals("Microsoft Bluetooth A2dp Source", StringComparison.OrdinalIgnoreCase) ||
+                   n.IndexOf("RFCOMM Protocol TDI", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        public static string CleanWirelessDeviceName(string rawName, string fallbackBaseName)
+        {
+            string cleanedRaw = StripAudioProfileSuffixes(rawName);
+            string cleanedBase = StripAudioProfileSuffixes(fallbackBaseName);
+
+            if (!string.IsNullOrEmpty(cleanedBase) && !IsGenericBluetoothNodeName(cleanedBase))
+            {
+                if (string.IsNullOrEmpty(cleanedRaw) || IsGenericBluetoothNodeName(cleanedRaw) ||
+                    cleanedBase.Length <= cleanedRaw.Length)
+                {
+                    return cleanedBase;
+                }
+            }
+            if (!string.IsNullOrEmpty(cleanedRaw)) return cleanedRaw;
+            return !string.IsNullOrEmpty(cleanedBase) ? cleanedBase : (rawName ?? "").Trim();
+        }
+
+        private static string StripAudioProfileSuffixes(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return "";
+            string s = Regex.Replace(name.Trim(), @"\s+", " ");
+            string prev;
+            do
+            {
+                prev = s;
+                s = Regex.Replace(
+                    s,
+                    @"(?i)[\s\-–—_]*(?:\(\s*)?(?:hands[\s\-]*free(?:\s+ag)?(?:\s+audio)?|hfp(?:\s+ag)?|stereo(?:\s+audio)?|avrcp\s+transport|a2dp(?:\s+snk)?|audio\s+gateway|audio\s+sink|headset\s+earphone|le\s+audio)(?:\s*\))?\s*$",
+                    "").Trim();
+                s = s.TrimEnd('-', '–', '—', '_', ' ');
+            } while (s != prev && s.Length > 0);
+            return s;
+        }
+
+        public static bool IsBluetoothTransport(string enumerator, string instanceId, string hardwareIds)
+        {
+            string en = (enumerator ?? "").Trim();
+            string id = (instanceId ?? "").Trim();
+            string hw = (hardwareIds ?? "").Trim();
+
+            if (en.StartsWith("BTH", StringComparison.OrdinalIgnoreCase)) return true;
+            if (id.StartsWith("BTH", StringComparison.OrdinalIgnoreCase)) return true;
+            if (id.IndexOf("BTHENUM", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                id.IndexOf("BTHLE", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                id.IndexOf("{00001812-", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                id.IndexOf("{0000180F-", StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+            if (hw.IndexOf("BTHENUM", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                hw.IndexOf("BTHLE", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                hw.IndexOf("{00001812-", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                hw.IndexOf("{0000180F-", StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+            return false;
+        }
+
+        private static string ExtractBtMacFromInstanceId(string instanceId)
+        {
+            if (string.IsNullOrEmpty(instanceId)) return "";
+            Match m = Regex.Match(instanceId, @"(?i)(?:DEV_|&|_)([0-9A-F]{12})(?:_|&|\\|$)");
+            return m.Success ? m.Groups[1].Value.ToUpperInvariant() : "";
+        }
+
+        private static void QueryClassicBluetoothStates(out Dictionary<string, bool> connectedByMac, out Dictionary<string, bool> connectedByName)
+        {
+            connectedByMac = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+            connectedByName = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                BLUETOOTH_DEVICE_SEARCH_PARAMS sp = new BLUETOOTH_DEVICE_SEARCH_PARAMS
+                {
+                    dwSize = (uint)Marshal.SizeOf(typeof(BLUETOOTH_DEVICE_SEARCH_PARAMS)),
+                    fReturnAuthenticated = 1,
+                    fReturnRemembered = 1,
+                    fReturnUnknown = 0,
+                    fReturnConnected = 1,
+                    fIssueInquiry = 0,
+                    cTimeoutMultiplier = 0,
+                    hRadio = IntPtr.Zero
+                };
+                BLUETOOTH_DEVICE_INFO info = new BLUETOOTH_DEVICE_INFO
+                {
+                    dwSize = (uint)Marshal.SizeOf(typeof(BLUETOOTH_DEVICE_INFO))
+                };
+
+                IntPtr hFind = BluetoothFindFirstDevice(ref sp, ref info);
+                if (hFind != IntPtr.Zero)
+                {
+                    try
+                    {
+                        do
+                        {
+                            string mac = info.Address.ToString("X12");
+                            bool prevMac;
+                            if (!connectedByMac.TryGetValue(mac, out prevMac) || info.fConnected)
+                                connectedByMac[mac] = info.fConnected;
+
+                            string cleanName = StripAudioProfileSuffixes(info.szName);
+                            if (!string.IsNullOrEmpty(cleanName))
+                            {
+                                bool prevNm;
+                                if (!connectedByName.TryGetValue(cleanName, out prevNm) || info.fConnected)
+                                    connectedByName[cleanName] = info.fConnected;
+                            }
+                        }
+                        while (BluetoothFindNextDevice(hFind, ref info));
+                    }
+                    finally
+                    {
+                        BluetoothFindDeviceClose(hFind);
+                    }
+                }
+            }
+            catch { }
+        }
+
+        private class PnpBatteryCandidate
+        {
+            public string RawName;
+            public string DevClass;
+            public string InstanceId;
+            public string Enumerator;
+            public string HardwareIds;
+            public Guid ContainerId;
+            public int Pct;
+            public bool? IsConnected;
+            public bool? IsPresent;
+            public bool CmStarted;
+            public uint CmProblem;
+        }
+
         public static void ClassifyDeviceTypeAndIcon(string rawName, string devClass, bool isEn, out string icon, out string typeLabel)
         {
             string lower = ((rawName ?? "") + " " + (devClass ?? "")).ToLowerInvariant();
@@ -360,8 +553,9 @@ namespace OpenWidget
             }
             else if (lower.Contains("headset") || lower.Contains("headphone") || lower.Contains("kulaklık") || lower.Contains("airpods") ||
                      lower.Contains("buds") || lower.Contains("cloud") || lower.Contains("arctis") || lower.Contains("nova") ||
-                     lower.Contains("kraken") || lower.Contains("blackshark") || lower.Contains("barracuda") || lower.Contains("wh-1000") ||
-                     lower.Contains("wf-1000") || lower.Contains("soundcore") || lower.Contains("jbl") || lower.Contains("audio"))
+                     lower.Contains("steelseries") || lower.Contains("kraken") || lower.Contains("blackshark") || lower.Contains("barracuda") ||
+                     lower.Contains("wh-1000") || lower.Contains("wf-1000") || lower.Contains("soundcore") || lower.Contains("jbl") ||
+                     lower.Contains("tune") || lower.Contains("quantum") || lower.Contains("sennheiser") || lower.Contains("audio"))
             {
                 icon = "🎧";
                 typeLabel = isEn ? "Headset" : "Kulaklık";
@@ -575,9 +769,13 @@ namespace OpenWidget
             }
             catch { }
 
-            // 2. Scan Windows Native PnP / Bluetooth / BLE Battery Service Devices (DEVPKEY_Device_BatteryLife)
+            // 2. Scan Windows Native PnP / Bluetooth / BLE / Dongle Battery Devices (Two-Pass + Strict Connection Filtering)
             try
             {
+                Dictionary<string, bool> btConnByMac;
+                Dictionary<string, bool> btConnByName;
+                QueryClassicBluetoothStates(out btConnByMac, out btConnByName);
+
                 IntPtr hPnp = SetupDiGetClassDevsAll(IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, 0x02 | 0x04);
                 if (hPnp != IntPtr.Zero && hPnp != new IntPtr(-1))
                 {
@@ -586,46 +784,200 @@ namespace OpenWidget
                         SP_DEVINFO_DATA devInfo = new SP_DEVINFO_DATA();
                         devInfo.cbSize = (uint)Marshal.SizeOf(typeof(SP_DEVINFO_DATA));
                         DEVPROPKEY batKey = new DEVPROPKEY { fmtid = new Guid("104EA319-6EE2-4701-BD47-8DDBF425BBE5"), pid = 2 };
+                        DEVPROPKEY isConnKey = new DEVPROPKEY { fmtid = new Guid("83DA6326-97A6-4088-9453-A1923F573B29"), pid = 15 };
+                        DEVPROPKEY isPresentKey = new DEVPROPKEY { fmtid = new Guid("540B947E-8B40-45BC-A8A2-6A0B894CBDA2"), pid = 5 };
+                        DEVPROPKEY containerKey = new DEVPROPKEY { fmtid = new Guid("8C7ED206-3F8A-4827-B3AB-AE9E1FAEFC6C"), pid = 2 };
+                        DEVPROPKEY hwIdsKey = new DEVPROPKEY { fmtid = new Guid("A45C254E-DF1C-4EFD-8020-67D146A850E0"), pid = 3 };
+
+                        List<PnpBatteryCandidate> candidates = new List<PnpBatteryCandidate>();
+                        HashSet<Guid> containerAnyConnected = new HashSet<Guid>();
+                        Dictionary<Guid, bool> containerPrimaryBtConnected = new Dictionary<Guid, bool>();
+                        Dictionary<Guid, string> containerBaseNames = new Dictionary<Guid, string>();
+
+                        byte[] propBuf = new byte[1024];
+                        StringBuilder sbInst = new StringBuilder(512);
+                        StringBuilder sbName = new StringBuilder(256);
+                        StringBuilder sbClass = new StringBuilder(128);
+                        StringBuilder sbEnum = new StringBuilder(128);
 
                         uint idx = 0;
                         while (SetupDiEnumDeviceInfo(hPnp, idx, ref devInfo))
                         {
+                            idx++;
                             uint propType, reqSize;
-                            byte[] buf = new byte[16];
-                            if (SetupDiGetDevicePropertyW(hPnp, ref devInfo, ref batKey, out propType, buf, 16, out reqSize, 0))
-                            {
-                                int pct = buf[0];
-                                if (pct > 0 && pct <= 100)
-                                {
-                                    StringBuilder sbName = new StringBuilder(256);
-                                    uint regType, regReq;
-                                    if (!SetupDiGetDeviceRegistryProperty(hPnp, ref devInfo, 0x0C, out regType, sbName, 256, out regReq) || sbName.Length == 0)
-                                    {
-                                        SetupDiGetDeviceRegistryProperty(hPnp, ref devInfo, 0x00, out regType, sbName, 256, out regReq);
-                                    }
-                                    StringBuilder sbClass = new StringBuilder(128);
-                                    SetupDiGetDeviceRegistryProperty(hPnp, ref devInfo, 0x07, out regType, sbClass, 128, out regReq);
 
-                                    string devName = sbName.ToString().Trim();
-                                    string devClass = sbClass.ToString().Trim();
-                                    if (!string.IsNullOrEmpty(devName) && !addedNames.Contains(devName))
+                            sbInst.Clear();
+                            int instReq;
+                            SetupDiGetDeviceInstanceIdW(hPnp, ref devInfo, sbInst, sbInst.Capacity, out instReq);
+                            string instId = sbInst.ToString().Trim();
+
+                            Guid containerId = Guid.Empty;
+                            if (SetupDiGetDevicePropertyW(hPnp, ref devInfo, ref containerKey, out propType, propBuf, 16, out reqSize, 0) && reqSize >= 16)
+                            {
+                                byte[] gBytes = new byte[16];
+                                Array.Copy(propBuf, 0, gBytes, 0, 16);
+                                containerId = new Guid(gBytes);
+                            }
+
+                            bool? isConn = null;
+                            if (SetupDiGetDevicePropertyW(hPnp, ref devInfo, ref isConnKey, out propType, propBuf, 16, out reqSize, 0) && reqSize >= 1)
+                            {
+                                isConn = (propBuf[0] != 0);
+                            }
+
+                            bool? isPres = null;
+                            if (SetupDiGetDevicePropertyW(hPnp, ref devInfo, ref isPresentKey, out propType, propBuf, 16, out reqSize, 0) && reqSize >= 1)
+                            {
+                                isPres = (propBuf[0] != 0);
+                            }
+
+                            sbName.Clear();
+                            uint regType, regReq;
+                            if (!SetupDiGetDeviceRegistryProperty(hPnp, ref devInfo, 0x0C, out regType, sbName, (uint)sbName.Capacity, out regReq) || sbName.Length == 0)
+                            {
+                                sbName.Clear();
+                                SetupDiGetDeviceRegistryProperty(hPnp, ref devInfo, 0x00, out regType, sbName, (uint)sbName.Capacity, out regReq);
+                            }
+                            string devName = sbName.ToString().Trim();
+
+                            if (containerId != Guid.Empty)
+                            {
+                                if (isConn == true) containerAnyConnected.Add(containerId);
+
+                                bool isPrimaryBtDevNode =
+                                    instId.StartsWith(@"BTHENUM\Dev_", StringComparison.OrdinalIgnoreCase) ||
+                                    instId.StartsWith(@"BTHLE\Dev_", StringComparison.OrdinalIgnoreCase);
+                                if (isPrimaryBtDevNode)
+                                {
+                                    if (isConn.HasValue)
                                     {
-                                        string icon, typeLabel;
-                                        ClassifyDeviceTypeAndIcon(devName, devClass, isEn, out icon, out typeLabel);
-                                        results.Add(new WirelessDeviceReading
-                                        {
-                                            IdKey = "PNP_" + devName,
-                                            Icon = icon,
-                                            Name = devName,
-                                            Detail = typeLabel + " • Bluetooth",
-                                            PctText = isEn ? (pct + "%") : ("%" + pct),
-                                            BarPct = pct
-                                        });
-                                        addedNames.Add(devName);
+                                        bool prevConn;
+                                        if (!containerPrimaryBtConnected.TryGetValue(containerId, out prevConn) || isConn.Value)
+                                            containerPrimaryBtConnected[containerId] = isConn.Value;
+                                    }
+                                    if (!string.IsNullOrEmpty(devName) && !IsGenericBluetoothNodeName(devName) && !containerBaseNames.ContainsKey(containerId))
+                                    {
+                                        string baseClean = StripAudioProfileSuffixes(devName);
+                                        if (!string.IsNullOrEmpty(baseClean)) containerBaseNames[containerId] = baseClean;
                                     }
                                 }
                             }
-                            idx++;
+
+                            if (SetupDiGetDevicePropertyW(hPnp, ref devInfo, ref batKey, out propType, propBuf, 16, out reqSize, 0) && reqSize >= 1)
+                            {
+                                int pct = propBuf[0];
+                                if (pct > 0 && pct <= 100 && !string.IsNullOrEmpty(devName))
+                                {
+                                    sbClass.Clear();
+                                    SetupDiGetDeviceRegistryProperty(hPnp, ref devInfo, 0x07, out regType, sbClass, (uint)sbClass.Capacity, out regReq);
+                                    sbEnum.Clear();
+                                    SetupDiGetDeviceRegistryProperty(hPnp, ref devInfo, 0x16, out regType, sbEnum, (uint)sbEnum.Capacity, out regReq);
+
+                                    string hwIds = "";
+                                    if (SetupDiGetDevicePropertyW(hPnp, ref devInfo, ref hwIdsKey, out propType, propBuf, (uint)propBuf.Length, out reqSize, 0) && reqSize > 0)
+                                    {
+                                        int byteLen = (int)Math.Min(reqSize, (uint)propBuf.Length);
+                                        hwIds = Encoding.Unicode.GetString(propBuf, 0, byteLen).Replace('\0', ' ').Trim();
+                                    }
+
+                                    uint cmStatus = 0, cmProblem = 0;
+                                    bool cmOk = false;
+                                    try { cmOk = (CM_Get_DevNode_Status(out cmStatus, out cmProblem, devInfo.DevInst, 0) == 0); } catch { }
+
+                                    candidates.Add(new PnpBatteryCandidate
+                                    {
+                                        RawName = devName,
+                                        DevClass = sbClass.ToString().Trim(),
+                                        InstanceId = instId,
+                                        Enumerator = sbEnum.ToString().Trim(),
+                                        HardwareIds = hwIds,
+                                        ContainerId = containerId,
+                                        Pct = pct,
+                                        IsConnected = isConn,
+                                        IsPresent = isPres,
+                                        CmStarted = cmOk && ((cmStatus & 0x00000008u) != 0),
+                                        CmProblem = cmProblem
+                                    });
+                                }
+                            }
+                        }
+
+                        HashSet<Guid> addedContainers = new HashSet<Guid>();
+                        foreach (PnpBatteryCandidate c in candidates)
+                        {
+                            if (c.IsPresent == false || c.IsConnected == false) continue;
+
+                            string baseName = (c.ContainerId != Guid.Empty && containerBaseNames.ContainsKey(c.ContainerId))
+                                ? containerBaseNames[c.ContainerId]
+                                : "";
+                            string cleanName = CleanWirelessDeviceName(c.RawName, baseName);
+                            if (string.IsNullOrEmpty(cleanName)) continue;
+
+                            bool isBt = IsBluetoothTransport(c.Enumerator, c.InstanceId, c.HardwareIds);
+                            if (isBt)
+                            {
+                                string mac = ExtractBtMacFromInstanceId(c.InstanceId);
+                                bool btMacKnown = false, btMacConn = false;
+                                if (!string.IsNullOrEmpty(mac) && btConnByMac.TryGetValue(mac, out btMacConn))
+                                {
+                                    btMacKnown = true;
+                                    if (!btMacConn) continue;
+                                }
+
+                                bool btNameConn;
+                                if (btConnByName.TryGetValue(cleanName, out btNameConn))
+                                {
+                                    if (!btNameConn && !(btMacKnown && btMacConn)) continue;
+                                }
+
+                                bool contPrimConn = false;
+                                bool contPrimKnown = c.ContainerId != Guid.Empty && containerPrimaryBtConnected.TryGetValue(c.ContainerId, out contPrimConn);
+                                if (contPrimKnown && !contPrimConn) continue;
+
+                                bool hasPositiveConfirm =
+                                    (c.IsConnected == true) ||
+                                    (contPrimKnown && contPrimConn) ||
+                                    (c.ContainerId != Guid.Empty && containerAnyConnected.Contains(c.ContainerId)) ||
+                                    (btMacKnown && btMacConn) ||
+                                    btNameConn;
+                                if (!hasPositiveConfirm) continue;
+                            }
+                            else
+                            {
+                                if (!c.CmStarted || c.CmProblem != 0) continue;
+                            }
+
+                            if (c.ContainerId != Guid.Empty && addedContainers.Contains(c.ContainerId)) continue;
+                            if (addedNames.Contains(cleanName)) continue;
+
+                            string icon, typeLabel;
+                            ClassifyDeviceTypeAndIcon(cleanName, c.DevClass, isEn, out icon, out typeLabel);
+
+                            string protoSuffix = "";
+                            if (isBt)
+                            {
+                                protoSuffix = " • Bluetooth";
+                            }
+                            else if (c.Enumerator.Equals("HID", StringComparison.OrdinalIgnoreCase) ||
+                                     c.Enumerator.Equals("USB", StringComparison.OrdinalIgnoreCase) ||
+                                     c.InstanceId.StartsWith(@"HID\", StringComparison.OrdinalIgnoreCase) ||
+                                     c.InstanceId.StartsWith(@"USB\", StringComparison.OrdinalIgnoreCase))
+                            {
+                                protoSuffix = " • 2.4GHz";
+                            }
+
+                            string idKey = "PNP_" + (c.ContainerId != Guid.Empty ? c.ContainerId.ToString("N") : cleanName.ToLowerInvariant());
+                            results.Add(new WirelessDeviceReading
+                            {
+                                IdKey = idKey,
+                                Icon = icon,
+                                Name = cleanName,
+                                Detail = typeLabel + protoSuffix,
+                                PctText = isEn ? (c.Pct + "%") : ("%" + c.Pct),
+                                BarPct = c.Pct
+                            });
+                            addedNames.Add(cleanName);
+                            if (c.ContainerId != Guid.Empty) addedContainers.Add(c.ContainerId);
                         }
                     }
                     finally
@@ -1772,6 +2124,16 @@ namespace OpenWidget
             public uint bitsPerColorChannel;
         }
 
+        [StructLayout(LayoutKind.Sequential)]
+        public struct DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO_2
+        {
+            public DISPLAYCONFIG_DEVICE_INFO_HEADER header;
+            public uint value;
+            public int colorEncoding;
+            public uint bitsPerColorChannel;
+            public int activeColorMode; // 0 = SDR, 1 = WCG, 2 = HDR
+        }
+
         public delegate bool MonitorEnumProc(IntPtr hMonitor, IntPtr hdcMonitor, ref RECT lprcMonitor, IntPtr dwData);
 
         [DllImport("user32.dll")]
@@ -1799,6 +2161,9 @@ namespace OpenWidget
         public static extern int DisplayConfigGetDeviceInfo(ref DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO requestPacket);
 
         [DllImport("user32.dll")]
+        public static extern int DisplayConfigGetDeviceInfo(ref DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO_2 requestPacket);
+
+        [DllImport("user32.dll")]
         public static extern int DisplayConfigSetDeviceInfo(ref DISPLAYCONFIG_SET_SDR_WHITE_LEVEL setPacket);
 
         [DllImport("dxva2.dll", SetLastError = true)]
@@ -1806,6 +2171,12 @@ namespace OpenWidget
 
         [DllImport("dxva2.dll", SetLastError = true)]
         public static extern bool GetPhysicalMonitorsFromHMONITOR(IntPtr hMonitor, uint dwPhysicalMonitorArraySize, [Out] PHYSICAL_MONITOR[] pPhysicalMonitorArray);
+
+        [DllImport("dxva2.dll", SetLastError = true)]
+        public static extern bool GetMonitorBrightness(IntPtr hMonitor, out uint pdwMinimumBrightness, out uint pdwCurrentBrightness, out uint pdwMaximumBrightness);
+
+        [DllImport("dxva2.dll", SetLastError = true)]
+        public static extern bool SetMonitorBrightness(IntPtr hMonitor, uint dwNewBrightness);
 
         [DllImport("dxva2.dll", SetLastError = true)]
         public static extern bool GetVCPFeatureAndVCPFeatureReply(IntPtr hMonitor, byte bVCPCode, out uint pvct, out uint pdwCurrentValue, out uint pdwMaximumValue);
@@ -1822,10 +2193,97 @@ namespace OpenWidget
         {
             public string GdiDeviceName;
             public string FriendlyName;
+            public string MonitorDevicePath;
             public LUID AdapterId;
             public uint TargetId;
+            public uint OutputTechnology;
+            public bool IsInternalPanel;
             public bool HdrEnabled;
             public int SdrBrightnessPct;
+        }
+
+        public class WmiBrightnessInfo
+        {
+            public string InstanceName;
+            public int CurrentBrightness;
+        }
+
+        public static string ExtractEdidIdFromDevicePath(string devPath)
+        {
+            if (string.IsNullOrWhiteSpace(devPath)) return "";
+            string[] parts = devPath.Split('#');
+            if (parts.Length >= 2) return parts[1].Trim();
+            return "";
+        }
+
+        public static List<WmiBrightnessInfo> QueryWmiBrightnessDisplays()
+        {
+            List<WmiBrightnessInfo> list = new List<WmiBrightnessInfo>();
+            try
+            {
+                ManagementScope scope = new ManagementScope(@"\\.\root\wmi");
+                SelectQuery query = new SelectQuery("SELECT InstanceName, CurrentBrightness FROM WmiMonitorBrightness");
+                using (ManagementObjectSearcher searcher = new ManagementObjectSearcher(scope, query))
+                using (ManagementObjectCollection results = searcher.Get())
+                {
+                    foreach (ManagementBaseObject obj in results)
+                    {
+                        using (obj)
+                        {
+                            string inst = obj["InstanceName"] as string ?? "";
+                            int cur = 60;
+                            if (obj["CurrentBrightness"] != null)
+                            {
+                                cur = Math.Max(0, Math.Min(100, Convert.ToInt32(obj["CurrentBrightness"])));
+                            }
+                            list.Add(new WmiBrightnessInfo { InstanceName = inst, CurrentBrightness = cur });
+                        }
+                    }
+                }
+            }
+            catch { }
+            return list;
+        }
+
+        public static bool SetWmiBrightness(string instanceName, int targetPct)
+        {
+            int clamped = Math.Max(0, Math.Min(100, targetPct));
+            try
+            {
+                ManagementScope scope = new ManagementScope(@"\\.\root\wmi");
+                SelectQuery query = new SelectQuery("WmiMonitorBrightnessMethods");
+                using (ManagementObjectSearcher searcher = new ManagementObjectSearcher(scope, query))
+                using (ManagementObjectCollection results = searcher.Get())
+                {
+                    ManagementObject fallbackObj = null;
+                    try
+                    {
+                        foreach (ManagementObject mObj in results)
+                        {
+                            string inst = mObj["InstanceName"] as string ?? "";
+                            if (string.IsNullOrEmpty(instanceName) || string.Equals(inst, instanceName, StringComparison.OrdinalIgnoreCase))
+                            {
+                                mObj.InvokeMethod("WmiSetBrightness", new object[] { (uint)0, (byte)clamped });
+                                mObj.Dispose();
+                                return true;
+                            }
+                            if (fallbackObj == null) fallbackObj = mObj;
+                            else mObj.Dispose();
+                        }
+                        if (fallbackObj != null)
+                        {
+                            fallbackObj.InvokeMethod("WmiSetBrightness", new object[] { (uint)0, (byte)clamped });
+                            return true;
+                        }
+                    }
+                    finally
+                    {
+                        if (fallbackObj != null) fallbackObj.Dispose();
+                    }
+                }
+            }
+            catch { }
+            return false;
         }
 
         public static List<WinDisplayTargetInfo> QueryActiveDisplayTargets()
@@ -1856,34 +2314,57 @@ namespace OpenWidget
                     tName.header.id = p.targetInfo.id;
                     DisplayConfigGetDeviceInfo(ref tName);
 
-                    var adv = new DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO();
-                    adv.header.type = 9;
-                    adv.header.size = (uint)Marshal.SizeOf(typeof(DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO));
-                    adv.header.adapterId = p.targetInfo.adapterId;
-                    adv.header.id = p.targetInfo.id;
-                    DisplayConfigGetDeviceInfo(ref adv);
-                    bool hdrActive = ((adv.value & 0x2) != 0);
-
-                    var sdr = new DISPLAYCONFIG_SDR_WHITE_LEVEL();
-                    sdr.header.type = 11;
-                    sdr.header.size = (uint)Marshal.SizeOf(typeof(DISPLAYCONFIG_SDR_WHITE_LEVEL));
-                    sdr.header.adapterId = p.targetInfo.adapterId;
-                    sdr.header.id = p.targetInfo.id;
-                    int sdrRc = DisplayConfigGetDeviceInfo(ref sdr);
+                    bool hdrActive = false;
+                    var adv2 = new DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO_2();
+                    adv2.header.type = 15; // DISPLAYCONFIG_DEVICE_INFO_GET_ADVANCED_COLOR_INFO_2 (Win11 24H2+)
+                    adv2.header.size = (uint)Marshal.SizeOf(typeof(DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO_2));
+                    adv2.header.adapterId = p.targetInfo.adapterId;
+                    adv2.header.id = p.targetInfo.id;
+                    if (DisplayConfigGetDeviceInfo(ref adv2) == 0)
+                    {
+                        hdrActive = (adv2.activeColorMode == 2);
+                    }
+                    else
+                    {
+                        var adv = new DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO();
+                        adv.header.type = 9;
+                        adv.header.size = (uint)Marshal.SizeOf(typeof(DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO));
+                        adv.header.adapterId = p.targetInfo.adapterId;
+                        adv.header.id = p.targetInfo.id;
+                        if (DisplayConfigGetDeviceInfo(ref adv) == 0)
+                        {
+                            // Bit 1 (0x2) = advancedColorEnabled, Bit 2 (0x4) = wideColorEnforced (ACM/WCG), Bit 3 (0x8) = forceDisabled
+                            hdrActive = ((adv.value & 0x2) != 0) && ((adv.value & 0x4) == 0) && ((adv.value & 0x8) == 0);
+                        }
+                    }
 
                     int pct = 60;
-                    if (sdrRc == 0 && sdr.SDRWhiteLevel >= 1000)
+                    if (hdrActive)
                     {
-                        pct = (int)Math.Round((sdr.SDRWhiteLevel - 1000) / 50.0);
-                        pct = Math.Max(0, Math.Min(100, pct));
+                        var sdr = new DISPLAYCONFIG_SDR_WHITE_LEVEL();
+                        sdr.header.type = 11;
+                        sdr.header.size = (uint)Marshal.SizeOf(typeof(DISPLAYCONFIG_SDR_WHITE_LEVEL));
+                        sdr.header.adapterId = p.targetInfo.adapterId;
+                        sdr.header.id = p.targetInfo.id;
+                        if (DisplayConfigGetDeviceInfo(ref sdr) == 0 && sdr.SDRWhiteLevel >= 1000)
+                        {
+                            pct = (int)Math.Round((sdr.SDRWhiteLevel - 1000) / 50.0);
+                            pct = Math.Max(0, Math.Min(100, pct));
+                        }
                     }
+
+                    uint outTech = p.targetInfo.outputTechnology;
+                    bool isInternal = (outTech & 0x80000000u) != 0 || outTech == 6u || outTech == 11u || outTech == 13u;
 
                     list.Add(new WinDisplayTargetInfo
                     {
                         GdiDeviceName = srcName.viewGdiDeviceName,
                         FriendlyName = tName.monitorFriendlyDeviceName,
+                        MonitorDevicePath = tName.monitorDevicePath,
                         AdapterId = p.targetInfo.adapterId,
                         TargetId = p.targetInfo.id,
+                        OutputTechnology = outTech,
+                        IsInternalPanel = isInternal,
                         HdrEnabled = hdrActive,
                         SdrBrightnessPct = pct
                     });
@@ -1919,6 +2400,8 @@ namespace OpenWidget
     internal class PhysicalMonitorSlot
     {
         public IntPtr Handle = IntPtr.Zero;
+        public string GdiDeviceName = "";
+        public int PhysicalIndex = 0;
         public string Name = "Monitor";
         public uint MinVal = 0;
         public uint MaxVal = 100;
@@ -1926,6 +2409,9 @@ namespace OpenWidget
         public int PendingBrightness = -1;
         public int WorkerBusy = 0;
         public bool UseWindowsSdrWhiteLevel = false;
+        public bool UseWmiBrightness = false;
+        public string WmiInstanceName = "";
+        public bool PreferHighLevelDdc = false;
         public MonitorDdcNative.LUID AdapterId;
         public uint TargetId = 0;
     }
@@ -2196,6 +2682,10 @@ namespace OpenWidget
         // Monitor Brightness UI & State (Auto-Detects Connected Displays, HDR SDRWhiteLevel + DDC/CI)
         private readonly List<PhysicalMonitorSlot> monitorSlots = new List<PhysicalMonitorSlot>();
         private readonly object monitorHandleLock = new object();
+        private readonly object monitorRefreshLock = new object();
+        private CancellationTokenSource monitorRefreshCts;
+        private EventHandler displaySettingsChangedHandler;
+        private PowerModeChangedEventHandler powerModeChangedHandler;
         private bool monitorLinkSync = false;
         private bool isUpdatingMonitorUi = false;
         private Grid monHeaderGrid;
@@ -3052,6 +3542,20 @@ namespace OpenWidget
                         TrimProcessMemory();
                     });
                 }), DispatcherPriority.Loaded);
+
+                if (displaySettingsChangedHandler == null)
+                {
+                    displaySettingsChangedHandler = (ds, de) => ScheduleMonitorRediscovery(1500);
+                    SystemEvents.DisplaySettingsChanged += displaySettingsChangedHandler;
+                }
+                if (powerModeChangedHandler == null)
+                {
+                    powerModeChangedHandler = (ps, pe) =>
+                    {
+                        if (pe.Mode == PowerModes.Resume) ScheduleMonitorRediscovery(1800);
+                    };
+                    SystemEvents.PowerModeChanged += powerModeChangedHandler;
+                }
             };
 
             this.StateChanged += (s, e) =>
@@ -3118,6 +3622,24 @@ namespace OpenWidget
                 }
                 catch { }
                 try { if (nvmlInitialized) NvmlNative.nvmlShutdown(); } catch { }
+                try
+                {
+                    if (displaySettingsChangedHandler != null)
+                    {
+                        SystemEvents.DisplaySettingsChanged -= displaySettingsChangedHandler;
+                        displaySettingsChangedHandler = null;
+                    }
+                    if (powerModeChangedHandler != null)
+                    {
+                        SystemEvents.PowerModeChanged -= powerModeChangedHandler;
+                        powerModeChangedHandler = null;
+                    }
+                    lock (monitorRefreshLock)
+                    {
+                        if (monitorRefreshCts != null) { monitorRefreshCts.Cancel(); monitorRefreshCts.Dispose(); monitorRefreshCts = null; }
+                    }
+                }
+                catch { }
                 CleanupMonitorHandles();
                 try { if (sharedPing != null) sharedPing.Dispose(); } catch { }
                 if (trayIcon != null)
@@ -4235,14 +4757,28 @@ namespace OpenWidget
         private Grid CreateTelemetryBarRow(string icon, string label, string detail, bool useThemeAccent, out TextBlock labelBlock, out TextBlock detailBlock, out Border barFill, out TextBlock pctBlock)
         {
             Grid g = new Grid { Margin = new Thickness(0, 4, 0, 4) };
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto, MaxWidth = 148 });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 0 });
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-            StackPanel left = new StackPanel { Orientation = Orientation.Horizontal };
-            left.Children.Add(CreateMiniIconBadge(icon));
-            labelBlock = new TextBlock { Text = label, Foreground = HexBrush("#F5EFEA"), FontSize = 12, FontWeight = FontWeights.Medium, VerticalAlignment = VerticalAlignment.Center };
+            Grid left = new Grid { VerticalAlignment = VerticalAlignment.Center };
+            left.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            left.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 0 });
+            FrameworkElement badge = CreateMiniIconBadge(icon);
+            Grid.SetColumn(badge, 0);
+            left.Children.Add(badge);
+            labelBlock = new TextBlock
+            {
+                Text = label,
+                Foreground = HexBrush("#F5EFEA"),
+                FontSize = 12,
+                FontWeight = FontWeights.Medium,
+                VerticalAlignment = VerticalAlignment.Center,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                TextWrapping = TextWrapping.NoWrap
+            };
+            Grid.SetColumn(labelBlock, 1);
             left.Children.Add(labelBlock);
             Grid.SetColumn(left, 0);
             g.Children.Add(left);
@@ -4255,7 +4791,8 @@ namespace OpenWidget
                 VerticalAlignment = VerticalAlignment.Center,
                 HorizontalAlignment = HorizontalAlignment.Right,
                 Margin = new Thickness(4, 0, 8, 0),
-                TextTrimming = TextTrimming.CharacterEllipsis
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                TextWrapping = TextWrapping.NoWrap
             };
             Grid.SetColumn(detailBlock, 1);
             g.Children.Add(detailBlock);
@@ -4287,6 +4824,88 @@ namespace OpenWidget
                 FontSize = 11.5,
                 FontWeight = FontWeights.Bold,
                 MinWidth = 48,
+                TextAlignment = TextAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            if (useThemeAccent) accentTextBlocks.Add(pctBlock);
+            Grid.SetColumn(pctBlock, 3);
+            g.Children.Add(pctBlock);
+
+            return g;
+        }
+
+        private Grid CreateWirelessDeviceRow(string icon, string label, string detail, bool useThemeAccent, out TextBlock labelBlock, out TextBlock detailBlock, out Border barFill, out TextBlock pctBlock)
+        {
+            Grid g = new Grid { Margin = new Thickness(0, 4, 0, 4) };
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 0 });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            FrameworkElement badge = CreateMiniIconBadge(icon);
+            badge.VerticalAlignment = VerticalAlignment.Center;
+            Grid.SetColumn(badge, 0);
+            g.Children.Add(badge);
+
+            Grid infoGrid = new Grid { Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center };
+            infoGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            infoGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+            labelBlock = new TextBlock
+            {
+                Text = label,
+                Foreground = HexBrush("#F5EFEA"),
+                FontSize = 11.5,
+                FontWeight = FontWeights.Medium,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                TextWrapping = TextWrapping.NoWrap,
+                ToolTip = label
+            };
+            Grid.SetRow(labelBlock, 0);
+            infoGrid.Children.Add(labelBlock);
+
+            detailBlock = new TextBlock
+            {
+                Text = detail,
+                Foreground = HexBrush("#B8A99E"),
+                FontSize = 10,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                TextWrapping = TextWrapping.NoWrap,
+                ToolTip = detail
+            };
+            Grid.SetRow(detailBlock, 1);
+            infoGrid.Children.Add(detailBlock);
+
+            Grid.SetColumn(infoGrid, 1);
+            g.Children.Add(infoGrid);
+
+            Border track = new Border
+            {
+                Width = 42,
+                Height = 4,
+                CornerRadius = new CornerRadius(2),
+                Background = HexBrush("#2E2520"),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 6, 0)
+            };
+            barFill = new Border
+            {
+                Width = 20,
+                Height = 4,
+                CornerRadius = new CornerRadius(2),
+                HorizontalAlignment = HorizontalAlignment.Left
+            };
+            if (useThemeAccent) accentBarFills.Add(barFill);
+            track.Child = barFill;
+            Grid.SetColumn(track, 2);
+            g.Children.Add(track);
+
+            pctBlock = new TextBlock
+            {
+                Text = "%40",
+                FontSize = 11.5,
+                FontWeight = FontWeights.Bold,
+                MinWidth = 38,
                 TextAlignment = TextAlignment.Right,
                 VerticalAlignment = VerticalAlignment.Center
             };
@@ -6279,6 +6898,107 @@ namespace OpenWidget
             }
         }
 
+        private void ScheduleMonitorRediscovery(int delayMs)
+        {
+            try
+            {
+                CancellationTokenSource cts;
+                lock (monitorRefreshLock)
+                {
+                    if (monitorRefreshCts != null)
+                    {
+                        try { monitorRefreshCts.Cancel(); monitorRefreshCts.Dispose(); } catch { }
+                    }
+                    monitorRefreshCts = new CancellationTokenSource();
+                    cts = monitorRefreshCts;
+                }
+                Task.Delay(delayMs, cts.Token).ContinueWith(t =>
+                {
+                    if (!t.IsCanceled)
+                    {
+                        DiscoverAndSyncMonitors(true);
+                    }
+                }, TaskScheduler.Default);
+            }
+            catch { }
+        }
+
+        private bool ReacquirePhysicalMonitorHandle(PhysicalMonitorSlot slot)
+        {
+            if (slot == null || string.IsNullOrEmpty(slot.GdiDeviceName)) return false;
+            try
+            {
+                List<IntPtr> matchingHmons = new List<IntPtr>();
+                MonitorDdcNative.EnumDisplayMonitors(IntPtr.Zero, IntPtr.Zero, (IntPtr hMon, IntPtr hdc, ref MonitorDdcNative.RECT r, IntPtr d) =>
+                {
+                    MonitorDdcNative.MONITORINFOEX mi = new MonitorDdcNative.MONITORINFOEX();
+                    mi.cbSize = Marshal.SizeOf(typeof(MonitorDdcNative.MONITORINFOEX));
+                    if (MonitorDdcNative.GetMonitorInfo(hMon, ref mi) &&
+                        string.Equals(mi.szDevice, slot.GdiDeviceName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        matchingHmons.Add(hMon);
+                    }
+                    return true;
+                }, IntPtr.Zero);
+
+                for (int h = 0; h < matchingHmons.Count; h++)
+                {
+                    uint count = 0;
+                    if (!MonitorDdcNative.GetNumberOfPhysicalMonitorsFromHMONITOR(matchingHmons[h], out count) || count == 0)
+                        continue;
+                    MonitorDdcNative.PHYSICAL_MONITOR[] phys = new MonitorDdcNative.PHYSICAL_MONITOR[count];
+                    if (!MonitorDdcNative.GetPhysicalMonitorsFromHMONITOR(matchingHmons[h], count, phys))
+                        continue;
+
+                    int pickIdx = (slot.PhysicalIndex >= 0 && slot.PhysicalIndex < count) ? slot.PhysicalIndex : 0;
+                    IntPtr newHandle = phys[pickIdx].hPhysicalMonitor;
+                    for (int i = 0; i < count; i++)
+                    {
+                        if (i != pickIdx && phys[i].hPhysicalMonitor != IntPtr.Zero)
+                        {
+                            try { MonitorDdcNative.DestroyPhysicalMonitor(phys[i].hPhysicalMonitor); } catch { }
+                        }
+                    }
+
+                    if (newHandle != IntPtr.Zero)
+                    {
+                        if (slot.Handle != IntPtr.Zero)
+                        {
+                            try { MonitorDdcNative.DestroyPhysicalMonitor(slot.Handle); } catch { }
+                        }
+                        slot.Handle = newHandle;
+                        return true;
+                    }
+                }
+            }
+            catch { }
+            return false;
+        }
+
+        private bool TrySetPhysicalDdcBrightness(PhysicalMonitorSlot slot, uint rawVal)
+        {
+            if (slot.Handle == IntPtr.Zero) return false;
+            if (slot.PreferHighLevelDdc)
+            {
+                if (MonitorDdcNative.SetMonitorBrightness(slot.Handle, rawVal)) return true;
+                if (MonitorDdcNative.SetVCPFeature(slot.Handle, MonitorDdcNative.VCP_BRIGHTNESS, rawVal))
+                {
+                    slot.PreferHighLevelDdc = false;
+                    return true;
+                }
+            }
+            else
+            {
+                if (MonitorDdcNative.SetVCPFeature(slot.Handle, MonitorDdcNative.VCP_BRIGHTNESS, rawVal)) return true;
+                if (MonitorDdcNative.SetMonitorBrightness(slot.Handle, rawVal))
+                {
+                    slot.PreferHighLevelDdc = true;
+                    return true;
+                }
+            }
+            return false;
+        }
+
         private void RunMonitorDdcWorker(PhysicalMonitorSlot slot)
         {
             try
@@ -6288,7 +7008,12 @@ namespace OpenWidget
                     int target = Interlocked.Exchange(ref slot.PendingBrightness, -1);
                     if (target < 0) break;
 
-                    if (slot.UseWindowsSdrWhiteLevel && slot.TargetId != 0)
+                    if (slot.UseWmiBrightness)
+                    {
+                        MonitorDdcNative.SetWmiBrightness(slot.WmiInstanceName, target);
+                        Thread.Sleep(12);
+                    }
+                    else if (slot.UseWindowsSdrWhiteLevel && slot.TargetId != 0)
                     {
                         MonitorDdcNative.SetSdrWhiteLevelPercent(slot.AdapterId, slot.TargetId, target);
                         Thread.Sleep(8);
@@ -6300,9 +7025,12 @@ namespace OpenWidget
 
                         lock (monitorHandleLock)
                         {
-                            if (slot.Handle != IntPtr.Zero)
+                            bool ok = TrySetPhysicalDdcBrightness(slot, rawVal);
+                            if (!ok && ReacquirePhysicalMonitorHandle(slot))
                             {
-                                MonitorDdcNative.SetVCPFeature(slot.Handle, MonitorDdcNative.VCP_BRIGHTNESS, rawVal);
+                                span = (slot.MaxVal > slot.MinVal) ? (slot.MaxVal - slot.MinVal) : 100u;
+                                rawVal = slot.MinVal + (uint)Math.Round((target / 100.0) * span);
+                                TrySetPhysicalDdcBrightness(slot, rawVal);
                             }
                         }
                         Thread.Sleep(28);
@@ -6323,12 +7051,13 @@ namespace OpenWidget
             }
         }
 
-        private string FormatFriendlyMonitorName(string rawName, int idx)
+        private string FormatFriendlyMonitorName(string rawName, int idx, bool isInternalPanel)
         {
-            if (string.IsNullOrWhiteSpace(rawName)) return L("Monitör ", "Monitor ") + (idx + 1);
+            if (string.IsNullOrWhiteSpace(rawName))
+                return isInternalPanel ? L("Dahili Ekran", "Built-in Display") : (L("Monitör ", "Monitor ") + (idx + 1));
             string n = rawName.Trim();
             if (n.IndexOf("Generic PnP", StringComparison.OrdinalIgnoreCase) >= 0)
-                return L("Monitör ", "Monitor ") + (idx + 1);
+                return isInternalPanel ? L("Dahili Ekran", "Built-in Display") : (L("Monitör ", "Monitor ") + (idx + 1));
             return n;
         }
 
@@ -6337,6 +7066,9 @@ namespace OpenWidget
             try
             {
                 List<MonitorDdcNative.WinDisplayTargetInfo> winTargets = MonitorDdcNative.QueryActiveDisplayTargets();
+                List<MonitorDdcNative.WmiBrightnessInfo> wmiDisplays = MonitorDdcNative.QueryWmiBrightnessDisplays();
+                HashSet<string> usedWmiInstances = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
                 List<IntPtr> hMonitors = new List<IntPtr>();
                 MonitorDdcNative.EnumDisplayMonitors(IntPtr.Zero, IntPtr.Zero, (IntPtr hMon, IntPtr hdc, ref MonitorDdcNative.RECT r, IntPtr d) =>
                 {
@@ -6348,12 +7080,12 @@ namespace OpenWidget
 
                 for (int m = 0; m < hMonitors.Count; m++)
                 {
-                    string gdiDevName = null;
+                    string gdiDevName = "";
                     MonitorDdcNative.MONITORINFOEX mi = new MonitorDdcNative.MONITORINFOEX();
                     mi.cbSize = Marshal.SizeOf(typeof(MonitorDdcNative.MONITORINFOEX));
                     if (MonitorDdcNative.GetMonitorInfo(hMonitors[m], ref mi))
                     {
-                        gdiDevName = mi.szDevice;
+                        gdiDevName = mi.szDevice ?? "";
                     }
 
                     MonitorDdcNative.WinDisplayTargetInfo matchedTarget = null;
@@ -6373,9 +7105,65 @@ namespace OpenWidget
                         matchedTarget = winTargets[m];
                     }
 
+                    MonitorDdcNative.WmiBrightnessInfo matchedWmi = null;
+                    bool exactWmiEdidMatch = false;
+                    if (wmiDisplays.Count > 0)
+                    {
+                        string edidId = matchedTarget != null ? MonitorDdcNative.ExtractEdidIdFromDevicePath(matchedTarget.MonitorDevicePath) : "";
+                        if (!string.IsNullOrEmpty(edidId))
+                        {
+                            for (int w = 0; w < wmiDisplays.Count; w++)
+                            {
+                                if (!usedWmiInstances.Contains(wmiDisplays[w].InstanceName) &&
+                                    wmiDisplays[w].InstanceName.IndexOf(edidId, StringComparison.OrdinalIgnoreCase) >= 0)
+                                {
+                                    matchedWmi = wmiDisplays[w];
+                                    exactWmiEdidMatch = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if (matchedWmi == null && matchedTarget != null && matchedTarget.IsInternalPanel)
+                        {
+                            for (int w = 0; w < wmiDisplays.Count; w++)
+                            {
+                                if (!usedWmiInstances.Contains(wmiDisplays[w].InstanceName))
+                                {
+                                    matchedWmi = wmiDisplays[w];
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
                     uint count = 0;
-                    if (!MonitorDdcNative.GetNumberOfPhysicalMonitorsFromHMONITOR(hMonitors[m], out count) || count == 0)
+                    bool hasPhys = MonitorDdcNative.GetNumberOfPhysicalMonitorsFromHMONITOR(hMonitors[m], out count) && count > 0;
+                    if (!hasPhys)
+                    {
+                        if (matchedWmi != null)
+                        {
+                            usedWmiInstances.Add(matchedWmi.InstanceName);
+                            bool hdrOn = (matchedTarget != null && matchedTarget.HdrEnabled);
+                            discovered.Add(new PhysicalMonitorSlot
+                            {
+                                Handle = IntPtr.Zero,
+                                GdiDeviceName = gdiDevName,
+                                PhysicalIndex = 0,
+                                Name = FormatFriendlyMonitorName(matchedTarget != null ? matchedTarget.FriendlyName : "", discovered.Count, true),
+                                MinVal = 0,
+                                MaxVal = 100,
+                                CurrentBrightness = hdrOn ? matchedTarget.SdrBrightnessPct : matchedWmi.CurrentBrightness,
+                                PendingBrightness = -1,
+                                WorkerBusy = 0,
+                                UseWindowsSdrWhiteLevel = hdrOn,
+                                UseWmiBrightness = !hdrOn,
+                                WmiInstanceName = matchedWmi.InstanceName,
+                                AdapterId = matchedTarget != null ? matchedTarget.AdapterId : default(MonitorDdcNative.LUID),
+                                TargetId = matchedTarget != null ? matchedTarget.TargetId : 0u
+                            });
+                        }
                         continue;
+                    }
 
                     MonitorDdcNative.PHYSICAL_MONITOR[] phys = new MonitorDdcNative.PHYSICAL_MONITOR[count];
                     if (!MonitorDdcNative.GetPhysicalMonitorsFromHMONITOR(hMonitors[m], count, phys))
@@ -6390,37 +7178,107 @@ namespace OpenWidget
                             rawDesc = matchedTarget.FriendlyName;
                         }
 
-                        uint pdwType, curVal = 50, maxVal = 100;
-                        bool ddcOk = MonitorDdcNative.GetVCPFeatureAndVCPFeatureReply(hPhys, MonitorDdcNative.VCP_BRIGHTNESS, out pdwType, out curVal, out maxVal);
-
+                        bool hdrActive = (matchedTarget != null && matchedTarget.HdrEnabled);
                         bool useSdr = false;
-                        int pct = 60;
-                        if (matchedTarget != null && matchedTarget.HdrEnabled)
+                        bool useWmi = false;
+                        bool preferHighLevel = false;
+                        string wmiInst = "";
+                        uint minVal = 0, maxVal = 100, curVal = 50;
+                        int pct = 50;
+
+                        if (hdrActive)
                         {
                             useSdr = true;
                             pct = matchedTarget.SdrBrightnessPct;
                         }
-                        else if (ddcOk && maxVal > 0)
+                        else if (matchedWmi != null && (exactWmiEdidMatch || (matchedTarget != null && matchedTarget.IsInternalPanel)))
                         {
-                            pct = (int)Math.Round((curVal / (double)maxVal) * 100.0);
-                            pct = Math.Max(0, Math.Min(100, pct));
+                            useWmi = true;
+                            wmiInst = matchedWmi.InstanceName;
+                            pct = matchedWmi.CurrentBrightness;
+                            usedWmiInstances.Add(wmiInst);
+                            if (hPhys != IntPtr.Zero)
+                            {
+                                try { MonitorDdcNative.DestroyPhysicalMonitor(hPhys); } catch { }
+                                hPhys = IntPtr.Zero;
+                            }
                         }
-                        else if (matchedTarget != null)
+                        else
                         {
-                            useSdr = true;
-                            pct = matchedTarget.SdrBrightnessPct;
+                            bool ddcOk = false;
+                            for (int attempt = 0; attempt < 2 && !ddcOk; attempt++)
+                            {
+                                if (attempt > 0) Thread.Sleep(20);
+                                uint hlMin, hlCur, hlMax;
+                                if (MonitorDdcNative.GetMonitorBrightness(hPhys, out hlMin, out hlCur, out hlMax) && hlMax > hlMin)
+                                {
+                                    minVal = hlMin;
+                                    curVal = hlCur;
+                                    maxVal = hlMax;
+                                    preferHighLevel = true;
+                                    ddcOk = true;
+                                    break;
+                                }
+                                uint pdwType, vcpCur, vcpMax;
+                                if (MonitorDdcNative.GetVCPFeatureAndVCPFeatureReply(hPhys, MonitorDdcNative.VCP_BRIGHTNESS, out pdwType, out vcpCur, out vcpMax) && vcpMax > 0)
+                                {
+                                    minVal = 0;
+                                    curVal = vcpCur;
+                                    maxVal = vcpMax;
+                                    preferHighLevel = false;
+                                    ddcOk = true;
+                                    break;
+                                }
+                            }
+
+                            if (ddcOk && maxVal > minVal)
+                            {
+                                double ratio = (curVal - minVal) / (double)(maxVal - minVal);
+                                pct = Math.Max(0, Math.Min(100, (int)Math.Round(ratio * 100.0)));
+                            }
+                            else
+                            {
+                                // Fallback for built-in laptop panels routed via GPU mux without internal OutputTechnology flag
+                                MonitorDdcNative.WmiBrightnessInfo fallbackWmi = null;
+                                for (int w = 0; w < wmiDisplays.Count; w++)
+                                {
+                                    if (!usedWmiInstances.Contains(wmiDisplays[w].InstanceName))
+                                    {
+                                        fallbackWmi = wmiDisplays[w];
+                                        break;
+                                    }
+                                }
+                                if (fallbackWmi != null)
+                                {
+                                    useWmi = true;
+                                    wmiInst = fallbackWmi.InstanceName;
+                                    pct = fallbackWmi.CurrentBrightness;
+                                    usedWmiInstances.Add(wmiInst);
+                                    if (hPhys != IntPtr.Zero)
+                                    {
+                                        try { MonitorDdcNative.DestroyPhysicalMonitor(hPhys); } catch { }
+                                        hPhys = IntPtr.Zero;
+                                    }
+                                }
+                            }
                         }
 
+                        bool isInternalSlot = useWmi || (matchedTarget != null && matchedTarget.IsInternalPanel);
                         PhysicalMonitorSlot slot = new PhysicalMonitorSlot
                         {
                             Handle = hPhys,
-                            Name = FormatFriendlyMonitorName(rawDesc, discovered.Count),
-                            MinVal = 0,
-                            MaxVal = (ddcOk && maxVal > 0) ? maxVal : 100u,
+                            GdiDeviceName = gdiDevName,
+                            PhysicalIndex = i,
+                            Name = FormatFriendlyMonitorName(rawDesc, discovered.Count, isInternalSlot),
+                            MinVal = minVal,
+                            MaxVal = (maxVal > minVal) ? maxVal : 100u,
                             CurrentBrightness = pct,
                             PendingBrightness = -1,
                             WorkerBusy = 0,
                             UseWindowsSdrWhiteLevel = useSdr,
+                            UseWmiBrightness = useWmi,
+                            WmiInstanceName = wmiInst,
+                            PreferHighLevelDdc = preferHighLevel,
                             AdapterId = matchedTarget != null ? matchedTarget.AdapterId : default(MonitorDdcNative.LUID),
                             TargetId = matchedTarget != null ? matchedTarget.TargetId : 0u
                         };
@@ -6477,24 +7335,34 @@ namespace OpenWidget
                     row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                     row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(38) });
 
-                    StackPanel nameStack = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-                    nameStack.Children.Add(new TextBlock { Text = "🖥", Foreground = HexBrush("#B8A99E"), FontSize = 11, Margin = new Thickness(0, 0, 5, 0), VerticalAlignment = VerticalAlignment.Center });
+                    Grid nameGrid = new Grid { VerticalAlignment = VerticalAlignment.Center };
+                    nameGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                    nameGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+                    TextBlock tIcon = new TextBlock { Text = "🖥", Foreground = HexBrush("#B8A99E"), FontSize = 11, Margin = new Thickness(0, 0, 5, 0), VerticalAlignment = VerticalAlignment.Center };
+                    Grid.SetColumn(tIcon, 0);
+                    nameGrid.Children.Add(tIcon);
+
                     TextBlock tName = new TextBlock
                     {
-                        Text = slot.Name + (slot.UseWindowsSdrWhiteLevel ? " (SDR)" : ""),
+                        Text = slot.Name + (slot.UseWindowsSdrWhiteLevel ? " (HDR)" : ""),
                         Foreground = HexBrush("#F5EFEA"),
                         FontSize = 11.5,
                         FontWeight = FontWeights.SemiBold,
                         VerticalAlignment = VerticalAlignment.Center,
                         TextTrimming = TextTrimming.CharacterEllipsis,
+                        TextWrapping = TextWrapping.NoWrap,
                         ToolTip = slot.UseWindowsSdrWhiteLevel
-                            ? (slot.Name + L(" • HDR Açık: Windows SDR İçerik Parlaklığı (Gecikmesiz)", " • HDR Active: Windows SDR Content Brightness (Instant)"))
-                            : (slot.Name + L(" • Donanımsal DDC/CI Parlaklık", " • Hardware DDC/CI Brightness"))
+                            ? (slot.Name + L(" • HDR Açık: Windows SDR İçerik Parlaklığı", " • HDR Active: Windows SDR Content Brightness"))
+                            : (slot.UseWmiBrightness
+                                ? (slot.Name + L(" • Dahili Panel (WMI Parlaklık)", " • Built-in Display (WMI Brightness)"))
+                                : (slot.Name + L(" • Donanımsal DDC/CI Parlaklık", " • Hardware DDC/CI Brightness")))
                     };
-                    nameStack.Children.Add(tName);
+                    Grid.SetColumn(tName, 1);
+                    nameGrid.Children.Add(tName);
                     txtMonitorNames.Add(tName);
-                    Grid.SetColumn(nameStack, 0);
-                    row.Children.Add(nameStack);
+                    Grid.SetColumn(nameGrid, 0);
+                    row.Children.Add(nameGrid);
 
                     Border sHost = new Border { VerticalAlignment = VerticalAlignment.Center };
                     Slider sl = CreateModernSlider(accentColorHex, slot.CurrentBrightness, 0, "6,0,8,0");
@@ -6878,13 +7746,15 @@ namespace OpenWidget
                         if (!wirelessRowCache.TryGetValue(dev.IdKey, out ui))
                         {
                             ui = new WirelessRowUi();
-                            ui.Row = CreateTelemetryBarRow(dev.Icon, dev.Name, dev.Detail, true, out ui.Label, out ui.Detail, out ui.Fill, out ui.Pct);
+                            ui.Row = CreateWirelessDeviceRow(dev.Icon, dev.Name, dev.Detail, true, out ui.Label, out ui.Detail, out ui.Fill, out ui.Pct);
                             wirelessRowCache[dev.IdKey] = ui;
                             panelWirelessContent.Children.Add(ui.Row);
                         }
                         ui.Row.Visibility = Visibility.Visible;
                         ui.Label.Text = dev.Name;
+                        ui.Label.ToolTip = dev.Name;
                         ui.Detail.Text = dev.Detail;
+                        ui.Detail.ToolTip = dev.Detail;
                         ui.Pct.Text = dev.PctText;
                         ui.Pct.Foreground = accentBrush;
                         ui.Fill.Background = accentBrush;
