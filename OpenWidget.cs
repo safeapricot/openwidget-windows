@@ -986,6 +986,7 @@ namespace OpenWidget
         private string lastTaskbarDevicesSignature = "";
         private int lastTaskbarOverlayX = int.MinValue;
         private int lastTaskbarOverlayY = int.MinValue;
+        private int lastTaskbarOverlayW = int.MinValue;
         private bool taskbarOverlayHiddenByFullscreen = false;
         private struct TaskbarDeviceItem { public string Kind; public string Name; public int Pct; public string Detail; }
         private readonly List<TaskbarDeviceItem> latestTaskbarDevices = new List<TaskbarDeviceItem>();
@@ -1760,6 +1761,32 @@ namespace OpenWidget
                 steps++;
             }
             return false;
+        }
+
+        private bool IsWindowStrictlyAbove(IntPtr candidate, IntPtr reference)
+        {
+            if (candidate == IntPtr.Zero || reference == IntPtr.Zero || candidate == reference) return false;
+            IntPtr cur = GetWindow(reference, GW_HWNDPREV);
+            int steps = 0;
+            while (cur != IntPtr.Zero && steps < 96)
+            {
+                if (cur == candidate) return true;
+                cur = GetWindow(cur, GW_HWNDPREV);
+                steps++;
+            }
+            return false;
+        }
+
+        private IntPtr TaskbarOverlayWndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+        {
+            const int WM_MOUSEACTIVATE = 0x0021;
+            const int MA_NOACTIVATE = 3;
+            if (msg == WM_MOUSEACTIVATE)
+            {
+                handled = true;
+                return new IntPtr(MA_NOACTIVATE);
+            }
+            return IntPtr.Zero;
         }
 
         private void SendWidgetToDesktopBottom(IntPtr hwnd)
@@ -6173,11 +6200,14 @@ namespace OpenWidget
             if (!showTaskbarDevices)
             {
                 if (cachedTaskbarOverlayHwnd != IntPtr.Zero) ShowWindow(cachedTaskbarOverlayHwnd, SW_HIDE);
-                if (taskbarDevicesWindow != null) taskbarDevicesWindow.Hide();
                 return;
             }
             if (taskbarDevicesWindow == null) InitializeTaskbarDevicesOverlay();
+            else if (!taskbarDevicesWindow.IsVisible) taskbarDevicesWindow.Show();
             lastTaskbarDevicesSignature = "";
+            lastTaskbarOverlayX = int.MinValue;
+            lastTaskbarOverlayY = int.MinValue;
+            lastTaskbarOverlayW = int.MinValue;
             RefreshTaskbarDevicesOverlayUi();
             Task.Run(() => PollWirelessDevicesAsync(true));
         }
@@ -6196,7 +6226,6 @@ namespace OpenWidget
                 AllowsTransparency = true,
                 Background = Brushes.Transparent,
                 ResizeMode = ResizeMode.NoResize,
-                SizeToContent = SizeToContent.Width,
                 ShowInTaskbar = false,
                 Topmost = true,
                 UseLayoutRounding = true,
@@ -6227,11 +6256,14 @@ namespace OpenWidget
                 int exStyle = GetWindowLong(h, GWL_EXSTYLE);
                 SetWindowLong(h, GWL_EXSTYLE, exStyle | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TOPMOST);
                 HwndSource src = HwndSource.FromHwnd(h);
-                if (src != null) src.AddHook(WndProc);
+                if (src != null) src.AddHook(TaskbarOverlayWndProc);
+                lastTaskbarOverlayX = int.MinValue;
+                lastTaskbarOverlayW = int.MinValue;
                 UpdateTaskbarDevicesOverlayState();
             };
 
             taskbarDevicesWindow.Show();
+            cachedTaskbarOverlayHwnd = new WindowInteropHelper(taskbarDevicesWindow).Handle;
             if (!showTaskbarDevices || latestTaskbarDevices.Count == 0)
             {
                 if (cachedTaskbarOverlayHwnd != IntPtr.Zero) ShowWindow(cachedTaskbarOverlayHwnd, SW_HIDE);
@@ -6428,15 +6460,23 @@ namespace OpenWidget
             if (scaleX <= 0.1) scaleX = 1.0;
             if (scaleY <= 0.1) scaleY = 1.0;
 
+            if (!taskbarDevicesWindow.IsVisible)
+                taskbarDevicesWindow.Show();
+
             double targetDipH = Math.Max(28.0, (trayRect.bottom - trayRect.top) / scaleY);
-            if (Math.Abs(taskbarDevicesWindow.Height - targetDipH) > 0.5)
+            if (taskbarDevicesPanel != null)
+                taskbarDevicesPanel.Measure(new Size(double.PositiveInfinity, targetDipH));
+            double desiredW = taskbarDevicesPanel != null ? taskbarDevicesPanel.DesiredSize.Width + 6.0 : 80.0;
+            double targetDipW = Math.Max(28.0, Math.Ceiling(desiredW));
+            if (Math.Abs(taskbarDevicesWindow.Width - targetDipW) > 0.5 || Math.Abs(taskbarDevicesWindow.Height - targetDipH) > 0.5)
             {
+                taskbarDevicesWindow.Width = targetDipW;
                 taskbarDevicesWindow.Height = targetDipH;
+                taskbarDevicesWindow.UpdateLayout();
             }
 
-            double dipW = Math.Max(taskbarDevicesWindow.ActualWidth, taskbarDevicesPanel != null ? taskbarDevicesPanel.DesiredSize.Width + 4 : 80);
-            int overlayPhysW = (int)Math.Ceiling(dipW * scaleX);
-            if (overlayPhysW < 24) overlayPhysW = 100;
+            int overlayPhysW = Math.Max(28, (int)Math.Ceiling(targetDipW * scaleX));
+            int overlayPhysH = Math.Max(24, trayRect.bottom - trayRect.top);
 
             int x;
             IntPtr notifyWnd = FindWindowEx(shellTray, IntPtr.Zero, "TrayNotifyWnd", null);
@@ -6455,15 +6495,17 @@ namespace OpenWidget
             int y = trayRect.top;
 
             bool needsReposition = taskbarOverlayHiddenByFullscreen || !IsWindowVisible(h) ||
+                Math.Abs(overlayPhysW - lastTaskbarOverlayW) > 2 ||
                 Math.Abs(x - lastTaskbarOverlayX) > 2 || Math.Abs(y - lastTaskbarOverlayY) > 2 ||
-                IsWindowAbove(shellTray, h);
+                IsWindowStrictlyAbove(shellTray, h);
 
             if (needsReposition)
             {
                 taskbarOverlayHiddenByFullscreen = false;
                 lastTaskbarOverlayX = x;
                 lastTaskbarOverlayY = y;
-                SetWindowPos(h, HWND_TOPMOST, x, y, 0, 0, SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+                lastTaskbarOverlayW = overlayPhysW;
+                SetWindowPos(h, HWND_TOPMOST, x, y, overlayPhysW, overlayPhysH, SWP_NOACTIVATE | SWP_SHOWWINDOW);
             }
         }
 
@@ -9253,24 +9295,12 @@ namespace OpenWidget
 
         private Brush BuildStackedHourBrush(int studySec, int gameSec, int pcSec)
         {
-            Color baseDark = Color.FromRgb(34, 29, 26);
-            if (cachedHeatmapTierBrushes[0] == null ||
-                !string.Equals(cachedHeatmapAccentHex, accentColorHex, StringComparison.OrdinalIgnoreCase))
-            {
-                Color accent = ParseColor(accentColorHex);
-                Color[] tierColors = new Color[]
-                {
-                    baseDark,
-                    BlendColors(baseDark, accent, 0.24, 255)
-                };
-                for (int i = 0; i < 2; i++)
-                {
-                    SolidColorBrush sb = new SolidColorBrush(tierColors[i]);
-                    sb.Freeze();
-                    cachedHeatmapTierBrushes[i] = sb;
-                }
-                cachedHeatmapAccentHex = accentColorHex;
-            }
+            Color emptyDark = Color.FromRgb(34, 29, 26);
+            Color accent = ParseColor(accentColorHex);
+            cachedHeatmapAccentHex = accentColorHex;
+
+            double uptimeRatio = Math.Max(0.0, Math.Min(1.0, (Math.Max(0, pcSec) / 3600.0) / 8.0));
+            Color defaultCol = BlendColors(emptyDark, accent, uptimeRatio, 255);
 
             double studyHours = Math.Max(0, studySec) / 3600.0;
             double gameHours = Math.Max(0, gameSec) / 3600.0;
@@ -9278,11 +9308,13 @@ namespace OpenWidget
 
             if (totalHours <= 0.0)
             {
-                return (pcSec >= 60) ? cachedHeatmapTierBrushes[1] : cachedHeatmapTierBrushes[0];
+                SolidColorBrush sb = new SolidColorBrush(defaultCol);
+                sb.Freeze();
+                return sb;
             }
 
             double studyFrac, gameFrac;
-            if (totalHours > 10.0)
+            if (totalHours >= 10.0)
             {
                 studyFrac = studyHours / totalHours;
                 gameFrac = gameHours / totalHours;
@@ -9291,40 +9323,31 @@ namespace OpenWidget
             {
                 studyFrac = studyHours / 10.0;
                 gameFrac = gameHours / 10.0;
-                if (studySec > 0 && studyFrac < 0.06) studyFrac = 0.06;
-                if (gameSec > 0 && gameFrac < 0.06) gameFrac = 0.06;
-                double sum = studyFrac + gameFrac;
-                if (sum > 1.0)
-                {
-                    studyFrac /= sum;
-                    gameFrac /= sum;
-                }
             }
 
             Color studyCol = ParseColor(timerStudyColorHex);
             Color gameCol = ParseColor(timerGameColorHex);
-            Color topCol = (pcSec >= 60) ? ((SolidColorBrush)cachedHeatmapTierBrushes[1]).Color : baseDark;
 
             LinearGradientBrush lg = new LinearGradientBrush { StartPoint = new Point(0, 1), EndPoint = new Point(0, 0) };
             double cur = 0.0;
-            if (studyFrac > 0.001)
+            if (studyFrac > 0.0005)
             {
                 double next = Math.Min(1.0, cur + studyFrac);
                 lg.GradientStops.Add(new GradientStop(studyCol, cur));
                 lg.GradientStops.Add(new GradientStop(studyCol, next));
                 cur = next;
             }
-            if (gameFrac > 0.001 && cur < 0.999)
+            if (gameFrac > 0.0005 && cur < 0.9999)
             {
                 double next = Math.Min(1.0, cur + gameFrac);
                 lg.GradientStops.Add(new GradientStop(gameCol, cur));
                 lg.GradientStops.Add(new GradientStop(gameCol, next));
                 cur = next;
             }
-            if (cur < 0.999)
+            if (cur < 0.9999)
             {
-                lg.GradientStops.Add(new GradientStop(topCol, cur));
-                lg.GradientStops.Add(new GradientStop(topCol, 1.0));
+                lg.GradientStops.Add(new GradientStop(defaultCol, cur));
+                lg.GradientStops.Add(new GradientStop(defaultCol, 1.0));
             }
             lg.Freeze();
             return lg;
@@ -9801,9 +9824,17 @@ namespace OpenWidget
             }
             else
             {
+                if (todayHeatmapCell != null && (todayRec.PcSeconds <= 5 || (todayRec.PcSeconds % 60) == 0))
+                {
+                    todayHeatmapCell.Background = GetHeatmapCellBrush(today);
+                }
                 if (showTimerWidget && txtTodayPcVal != null && (todayRec.PcSeconds < 60 || (todayRec.PcSeconds % 60) == 0))
                 {
                     txtTodayPcVal.Text = FormatDurationTurkish(todayRec.PcSeconds);
+                }
+                if (timerDetailedWindow != null && refreshTimerDetailedViewAction != null && (todayRec.PcSeconds % 10) == 0)
+                {
+                    refreshTimerDetailedViewAction();
                 }
             }
         }
@@ -10175,16 +10206,16 @@ namespace OpenWidget
                 CornerRadius = new CornerRadius(6),
                 BorderBrush = HexBrush("#5E5047"),
                 BorderThickness = new Thickness(1),
-                Background = BuildStackedHourBrush(18000, 18000, 36000),
+                Background = BuildStackedHourBrush(10800, 7200, 28800),
                 Margin = new Thickness(0, 0, 10, 0),
-                ToolTip = "Örnek: 5s Oyun + 5s Ders dolumu"
+                ToolTip = "Örnek: 3s Ders (%30) + 2s Oyun (%20) + %50 Default (8s PC %100 doygunluk)"
             };
             Grid.SetColumn(stackedPreviewBox, 0);
             previewRow.Children.Add(stackedPreviewBox);
 
             TextBlock txtPreviewHint = new TextBlock
             {
-                Text = "Önizleme (5s Oyun + 5s Ders = %50 / %50 yatay bölünme)",
+                Text = "Önizleme (3s Ders + 2s Oyun = %30 / %20 + %50 Default; 8s PC = %100 doygunluk)",
                 Foreground = HexBrush("#B8A99E"),
                 FontSize = 10.5,
                 VerticalAlignment = VerticalAlignment.Center,
@@ -10197,7 +10228,7 @@ namespace OpenWidget
             Action applyTimerCustomColors = () =>
             {
                 SaveSettings();
-                stackedPreviewBox.Background = BuildStackedHourBrush(18000, 18000, 36000);
+                stackedPreviewBox.Background = BuildStackedHourBrush(10800, 7200, 28800);
                 if (timerStudyStatBar != null) timerStudyStatBar.Background = HexBrush(timerStudyColorHex);
                 if (timerGameStatBar != null) timerGameStatBar.Background = HexBrush(timerGameColorHex);
                 lastPlayBtnBrushKey = "";
@@ -10278,7 +10309,7 @@ namespace OpenWidget
 
             refreshTimerSettingsPreviewAction = () =>
             {
-                stackedPreviewBox.Background = BuildStackedHourBrush(18000, 18000, 36000);
+                stackedPreviewBox.Background = BuildStackedHourBrush(10800, 7200, 28800);
                 card.BorderBrush = HexBrush(accentColorHex);
             };
 
@@ -10402,13 +10433,23 @@ namespace OpenWidget
             dateHdrGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
             StackPanel dateTextStack = new StackPanel();
-            TextBlock txtSelDow = new TextBlock { Foreground = HexBrush(accentColorHex), FontSize = 10.5, FontWeight = FontWeights.Bold };
+            StackPanel dowRow = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            TextBlock txtSelDow = new TextBlock { Foreground = HexBrush(accentColorHex), FontSize = 10.5, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center };
+            Button btnManualAdd = CreateStyledIconButton("#2E2520", accentColorHex, "Bu güne manuel süre ekle");
+            btnManualAdd.Width = 20;
+            btnManualAdd.Height = 18;
+            btnManualAdd.Margin = new Thickness(6, 0, 0, 0);
+            btnManualAdd.Padding = new Thickness(0);
+            btnManualAdd.Content = new TextBlock { Text = "+", Foreground = HexBrush("#FAF6F2"), FontSize = 11.5, FontWeight = FontWeights.Bold, Margin = new Thickness(0, -1.5, 0, 0) };
+            dowRow.Children.Add(txtSelDow);
+            dowRow.Children.Add(btnManualAdd);
+
             StackPanel dayMonthRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, -1, 0, 0) };
             TextBlock txtSelDayNum = new TextBlock { Foreground = HexBrush("#FAF6F2"), FontSize = 23, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 7, 0) };
             TextBlock txtSelMonthYear = new TextBlock { Foreground = HexBrush("#B8A99E"), FontSize = 11.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, 0, 4) };
             dayMonthRow.Children.Add(txtSelDayNum);
             dayMonthRow.Children.Add(txtSelMonthYear);
-            dateTextStack.Children.Add(txtSelDow);
+            dateTextStack.Children.Add(dowRow);
             dateTextStack.Children.Add(dayMonthRow);
             Grid.SetColumn(dateTextStack, 0);
             dateHdrGrid.Children.Add(dateTextStack);
@@ -10713,7 +10754,240 @@ namespace OpenWidget
             refreshTimerDetailedViewAction = renderSelectedDay;
             renderSelectedDay();
 
-            outerCard.Child = root;
+            // Manual Time Entry Modal Overlay
+            bool manualAddIsGame = false;
+            Border manualAddOverlay = new Border
+            {
+                Visibility = Visibility.Collapsed,
+                Background = HexBrush("#B80E0B09"),
+                CornerRadius = new CornerRadius(11)
+            };
+            Panel.SetZIndex(manualAddOverlay, 25);
+
+            Border manualModalCard = new Border
+            {
+                Width = 345,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                CornerRadius = new CornerRadius(13),
+                Background = HexBrush("#FA201916"),
+                BorderBrush = HexBrush(accentColorHex),
+                BorderThickness = new Thickness(1.4),
+                Padding = new Thickness(16, 14, 16, 14)
+            };
+            manualModalCard.Effect = new DropShadowEffect { Color = Colors.Black, BlurRadius = 20, Opacity = 0.8 };
+
+            StackPanel mStack = new StackPanel();
+            Grid mHdr = new Grid { Margin = new Thickness(0, 0, 0, 10) };
+            mHdr.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            mHdr.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            StackPanel mTitles = new StackPanel();
+            mTitles.Children.Add(new TextBlock { Text = "➕ Manuel Süre Ekle", Foreground = HexBrush("#FAF6F2"), FontSize = 13.5, FontWeight = FontWeights.Bold });
+            TextBlock txtManualDateSub = new TextBlock { Text = "", Foreground = HexBrush("#B8A99E"), FontSize = 10.5, Margin = new Thickness(0, 1, 0, 0) };
+            mTitles.Children.Add(txtManualDateSub);
+            Grid.SetColumn(mTitles, 0);
+            mHdr.Children.Add(mTitles);
+
+            Button btnCloseManual = CreateStyledIconButton("#2E2520", "#4A3C34", "Kapat");
+            btnCloseManual.Padding = new Thickness(7, 2, 7, 2);
+            btnCloseManual.VerticalAlignment = VerticalAlignment.Top;
+            btnCloseManual.Content = new TextBlock { Text = "✕", Foreground = HexBrush("#C7B9AE"), FontSize = 11 };
+            btnCloseManual.Click += (s, e) => manualAddOverlay.Visibility = Visibility.Collapsed;
+            Grid.SetColumn(btnCloseManual, 1);
+            mHdr.Children.Add(btnCloseManual);
+            mStack.Children.Add(mHdr);
+
+            UniformGrid catSwitch = new UniformGrid { Columns = 2, Margin = new Thickness(0, 0, 0, 10) };
+            Button btnCatStudy = CreateStretchSettingsButton("#2A221E", timerStudyColorHex, "Ders kategorisine ekle");
+            btnCatStudy.Margin = new Thickness(0, 0, 4, 0);
+            btnCatStudy.Padding = new Thickness(8, 6, 8, 6);
+            TextBlock lblCatStudy = new TextBlock { Text = "📚 Ders", Foreground = HexBrush("#FAF6F2"), FontSize = 11.5, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center };
+            btnCatStudy.Content = lblCatStudy;
+
+            Button btnCatGame = CreateStretchSettingsButton("#1D1815", "#3A2F29", "Oyun kategorisine ekle");
+            btnCatGame.Margin = new Thickness(4, 0, 0, 0);
+            btnCatGame.Padding = new Thickness(8, 6, 8, 6);
+            TextBlock lblCatGame = new TextBlock { Text = "🎮 Oyun", Foreground = HexBrush("#9E8E82"), FontSize = 11.5, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center };
+            btnCatGame.Content = lblCatGame;
+            catSwitch.Children.Add(btnCatStudy);
+            catSwitch.Children.Add(btnCatGame);
+            mStack.Children.Add(catSwitch);
+
+            StackPanel gameNamePanel = new StackPanel { Visibility = Visibility.Collapsed, Margin = new Thickness(0, 0, 0, 10) };
+            gameNamePanel.Children.Add(new TextBlock { Text = "Oyun Adı (isteğe bağlı)", Foreground = HexBrush("#B8A99E"), FontSize = 10.5, Margin = new Thickness(0, 0, 0, 4) });
+            TextBox txtManualGameName = new TextBox
+            {
+                Text = "",
+                Background = HexBrush("#161210"),
+                Foreground = HexBrush("#FAF6F2"),
+                BorderBrush = HexBrush("#463932"),
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(8, 5, 8, 5),
+                FontSize = 11.5,
+                ToolTip = "Örn: VALORANT, Fortnite, Xero (boş bırakılırsa Manuel Oyun sayılır)"
+            };
+            gameNamePanel.Children.Add(txtManualGameName);
+            mStack.Children.Add(gameNamePanel);
+
+            Action syncCatUi = () =>
+            {
+                btnCatStudy.Background = HexBrush(!manualAddIsGame ? "#2A221E" : "#1D1815");
+                btnCatStudy.BorderBrush = HexBrush(!manualAddIsGame ? timerStudyColorHex : "#3A2F29");
+                lblCatStudy.Foreground = HexBrush(!manualAddIsGame ? "#FAF6F2" : "#9E8E82");
+
+                btnCatGame.Background = HexBrush(manualAddIsGame ? "#2A221E" : "#1D1815");
+                btnCatGame.BorderBrush = HexBrush(manualAddIsGame ? timerGameColorHex : "#3A2F29");
+                lblCatGame.Foreground = HexBrush(manualAddIsGame ? "#FAF6F2" : "#9E8E82");
+
+                gameNamePanel.Visibility = manualAddIsGame ? Visibility.Visible : Visibility.Collapsed;
+            };
+            btnCatStudy.Click += (s, e) => { manualAddIsGame = false; syncCatUi(); };
+            btnCatGame.Click += (s, e) => { manualAddIsGame = true; syncCatUi(); };
+
+            Grid hmInputs = new Grid { Margin = new Thickness(0, 0, 0, 8) };
+            hmInputs.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            hmInputs.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(10) });
+            hmInputs.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            StackPanel hCol = new StackPanel();
+            hCol.Children.Add(new TextBlock { Text = "Saat", Foreground = HexBrush("#B8A99E"), FontSize = 10.5, Margin = new Thickness(0, 0, 0, 4) });
+            TextBox txtManualHours = new TextBox
+            {
+                Text = "0",
+                Background = HexBrush("#161210"),
+                Foreground = HexBrush("#FAF6F2"),
+                BorderBrush = HexBrush("#463932"),
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(8, 5, 8, 5),
+                FontSize = 12,
+                FontWeight = FontWeights.SemiBold
+            };
+            hCol.Children.Add(txtManualHours);
+            Grid.SetColumn(hCol, 0);
+            hmInputs.Children.Add(hCol);
+
+            StackPanel mCol = new StackPanel();
+            mCol.Children.Add(new TextBlock { Text = "Dakika", Foreground = HexBrush("#B8A99E"), FontSize = 10.5, Margin = new Thickness(0, 0, 0, 4) });
+            TextBox txtManualMins = new TextBox
+            {
+                Text = "30",
+                Background = HexBrush("#161210"),
+                Foreground = HexBrush("#FAF6F2"),
+                BorderBrush = HexBrush("#463932"),
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(8, 5, 8, 5),
+                FontSize = 12,
+                FontWeight = FontWeights.SemiBold
+            };
+            mCol.Children.Add(txtManualMins);
+            Grid.SetColumn(mCol, 2);
+            hmInputs.Children.Add(mCol);
+            mStack.Children.Add(hmInputs);
+
+            UniformGrid quickChips = new UniformGrid { Columns = 4, Margin = new Thickness(0, 0, 0, 12) };
+            int[,] chipVals = { { 0, 15 }, { 0, 30 }, { 1, 0 }, { 2, 0 } };
+            string[] chipLbls = { "+15 dk", "+30 dk", "+1s", "+2s" };
+            for (int qi = 0; qi < 4; qi++)
+            {
+                int ch = chipVals[qi, 0];
+                int cm = chipVals[qi, 1];
+                Button qBtn = CreateStretchSettingsButton("#26201D", "#3E322B", chipLbls[qi]);
+                qBtn.Padding = new Thickness(4, 4, 4, 4);
+                qBtn.Margin = new Thickness(qi == 0 ? 0 : 2, 0, qi == 3 ? 0 : 2, 0);
+                qBtn.Content = new TextBlock { Text = chipLbls[qi], Foreground = HexBrush("#D7CBC2"), FontSize = 10, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center };
+                qBtn.Click += (s, e) =>
+                {
+                    txtManualHours.Text = ch.ToString();
+                    txtManualMins.Text = cm.ToString();
+                };
+                quickChips.Children.Add(qBtn);
+            }
+            mStack.Children.Add(quickChips);
+
+            Grid footerBtns = new Grid();
+            footerBtns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            footerBtns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(8) });
+            footerBtns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.3, GridUnitType.Star) });
+
+            Button btnCancelManual = CreateStretchSettingsButton("#26201D", "#463932", "Vazgeç");
+            btnCancelManual.Padding = new Thickness(8, 7, 8, 7);
+            btnCancelManual.Content = new TextBlock { Text = "İptal", Foreground = HexBrush("#C7B9AE"), FontSize = 11.5, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center };
+            btnCancelManual.Click += (s, e) => manualAddOverlay.Visibility = Visibility.Collapsed;
+            Grid.SetColumn(btnCancelManual, 0);
+            footerBtns.Children.Add(btnCancelManual);
+
+            Button btnConfirmManual = CreateStretchSettingsButton("#38281E", accentColorHex, "Seçili güne süreyi ekle");
+            btnConfirmManual.Padding = new Thickness(8, 7, 8, 7);
+            btnConfirmManual.Content = new TextBlock { Text = "✓ Ekle", Foreground = HexBrush("#FAF6F2"), FontSize = 11.5, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center };
+            btnConfirmManual.Click += (s, e) =>
+            {
+                int hrs = 0, mins = 0;
+                if (!int.TryParse(txtManualHours.Text.Trim(), out hrs) || !int.TryParse(txtManualMins.Text.Trim(), out mins) || hrs < 0 || mins < 0)
+                {
+                    ShowToast("Geçerli bir saat/dakika değeri girin");
+                    return;
+                }
+                int addSec = (hrs * 3600) + (mins * 60);
+                if (addSec <= 0 || addSec > 86400)
+                {
+                    ShowToast("Eklenecek süre 1 dk ile 24 saat arasında olmalıdır");
+                    return;
+                }
+                DailyActivityRecord rec = GetOrCreateActivityRecord(selectedDate);
+                if (manualAddIsGame)
+                {
+                    rec.GameSeconds += addSec;
+                    string rawName = txtManualGameName.Text.Trim();
+                    string gKey = SanitizeGameKey(string.IsNullOrEmpty(rawName) ? "Manuel Oyun" : rawName);
+                    int prevSec;
+                    rec.GameBreakdown.TryGetValue(gKey, out prevSec);
+                    rec.GameBreakdown[gKey] = prevSec + addSec;
+                }
+                else
+                {
+                    rec.StudySeconds += addSec;
+                }
+                SaveTimerActivityData();
+                renderSelectedDay();
+                BuildTimerHeatmapGrid();
+                UpdateTimerWidgetUi();
+                manualAddOverlay.Visibility = Visibility.Collapsed;
+                ShowToast(string.Format("✓ {0} ({1}) eklendi", FormatDurationTurkish(addSec), manualAddIsGame ? "Oyun" : "Ders"));
+            };
+            Grid.SetColumn(btnConfirmManual, 2);
+            footerBtns.Children.Add(btnConfirmManual);
+            mStack.Children.Add(footerBtns);
+
+            manualModalCard.Child = mStack;
+            manualAddOverlay.Child = manualModalCard;
+            manualAddOverlay.MouseLeftButtonDown += (s, e) =>
+            {
+                if (e.OriginalSource == manualAddOverlay)
+                {
+                    manualAddOverlay.Visibility = Visibility.Collapsed;
+                    e.Handled = true;
+                }
+            };
+
+            btnManualAdd.Click += (s, e) =>
+            {
+                string[] trMonthsFull = { "", "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık" };
+                string[] trDaysFull = { "Pazar", "Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi" };
+                txtManualDateSub.Text = string.Format("{0} {1} {2} {3}", selectedDate.Day, trMonthsFull[selectedDate.Month], selectedDate.Year, trDaysFull[(int)selectedDate.DayOfWeek]);
+                btnManualAdd.BorderBrush = HexBrush(accentColorHex);
+                manualModalCard.BorderBrush = HexBrush(accentColorHex);
+                btnConfirmManual.BorderBrush = HexBrush(accentColorHex);
+                syncCatUi();
+                manualAddOverlay.Visibility = Visibility.Visible;
+                txtManualMins.Focus();
+                txtManualMins.SelectAll();
+            };
+
+            Grid cardHost = new Grid();
+            cardHost.Children.Add(root);
+            cardHost.Children.Add(manualAddOverlay);
+            outerCard.Child = cardHost;
             timerDetailedWindow.Content = outerCard;
             timerDetailedWindow.Closed += (s, e) =>
             {
