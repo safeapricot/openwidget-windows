@@ -21,6 +21,7 @@ using System.Windows.Shell;
 using System.Windows.Shapes;
 using System.Windows.Threading;
 using Microsoft.Win32;
+using System.Management;
 
 namespace OpenWidget
 {
@@ -502,6 +503,16 @@ namespace OpenWidget
             public uint bitsPerColorChannel;
         }
 
+        [StructLayout(LayoutKind.Sequential)]
+        public struct DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO_2
+        {
+            public DISPLAYCONFIG_DEVICE_INFO_HEADER header;
+            public uint value;
+            public int colorEncoding;
+            public uint bitsPerColorChannel;
+            public int activeColorMode; // 0 = SDR, 1 = WCG, 2 = HDR
+        }
+
         public delegate bool MonitorEnumProc(IntPtr hMonitor, IntPtr hdcMonitor, ref RECT lprcMonitor, IntPtr dwData);
 
         [DllImport("user32.dll")]
@@ -526,6 +537,9 @@ namespace OpenWidget
         public static extern int DisplayConfigGetDeviceInfo(ref DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO requestPacket);
 
         [DllImport("user32.dll")]
+        public static extern int DisplayConfigGetDeviceInfo(ref DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO_2 requestPacket);
+
+        [DllImport("user32.dll")]
         public static extern int DisplayConfigSetDeviceInfo(ref DISPLAYCONFIG_SET_SDR_WHITE_LEVEL setPacket);
 
         [DllImport("dxva2.dll", SetLastError = true)]
@@ -535,6 +549,12 @@ namespace OpenWidget
         public static extern bool GetPhysicalMonitorsFromHMONITOR(IntPtr hMonitor, uint dwPhysicalMonitorArraySize, [Out] PHYSICAL_MONITOR[] pPhysicalMonitorArray);
 
         [DllImport("dxva2.dll", SetLastError = true)]
+        public static extern bool GetMonitorBrightness(IntPtr hMonitor, out uint pdwMinimumBrightness, out uint pdwCurrentBrightness, out uint pdwMaximumBrightness);
+
+        [DllImport("dxva2.dll", SetLastError = true)]
+        public static extern bool SetMonitorBrightness(IntPtr hMonitor, uint dwNewBrightness);
+
+        [DllImport("dxva2.dll", SetLastError = true)]
         public static extern bool GetVCPFeatureAndVCPFeatureReply(IntPtr hMonitor, byte bVCPCode, out uint pvct, out uint pdwCurrentValue, out uint pdwMaximumValue);
 
         [DllImport("dxva2.dll", SetLastError = true)]
@@ -542,6 +562,82 @@ namespace OpenWidget
 
         [DllImport("dxva2.dll", SetLastError = true)]
         public static extern bool DestroyPhysicalMonitor(IntPtr hMonitor);
+
+        public class WmiBrightnessInfo
+        {
+            public string InstanceName;
+            public int CurrentBrightness;
+        }
+
+        public static List<WmiBrightnessInfo> QueryWmiBrightnessDisplays()
+        {
+            List<WmiBrightnessInfo> list = new List<WmiBrightnessInfo>();
+            try
+            {
+                ManagementScope scope = new ManagementScope(@"\\.\root\wmi");
+                SelectQuery query = new SelectQuery("SELECT InstanceName, CurrentBrightness FROM WmiMonitorBrightness");
+                using (ManagementObjectSearcher searcher = new ManagementObjectSearcher(scope, query))
+                using (ManagementObjectCollection results = searcher.Get())
+                {
+                    foreach (ManagementBaseObject obj in results)
+                    {
+                        using (obj)
+                        {
+                            string inst = obj["InstanceName"] as string ?? "";
+                            int cur = 60;
+                            if (obj["CurrentBrightness"] != null)
+                            {
+                                cur = Math.Max(0, Math.Min(100, Convert.ToInt32(obj["CurrentBrightness"])));
+                            }
+                            list.Add(new WmiBrightnessInfo { InstanceName = inst, CurrentBrightness = cur });
+                        }
+                    }
+                }
+            }
+            catch { }
+            return list;
+        }
+
+        public static bool SetWmiBrightness(string instanceName, int targetPct)
+        {
+            int clamped = Math.Max(0, Math.Min(100, targetPct));
+            try
+            {
+                ManagementScope scope = new ManagementScope(@"\\.\root\wmi");
+                SelectQuery query = new SelectQuery("WmiMonitorBrightnessMethods");
+                using (ManagementObjectSearcher searcher = new ManagementObjectSearcher(scope, query))
+                using (ManagementObjectCollection results = searcher.Get())
+                {
+                    ManagementObject fallbackObj = null;
+                    try
+                    {
+                        foreach (ManagementObject mObj in results)
+                        {
+                            string inst = mObj["InstanceName"] as string ?? "";
+                            if (string.IsNullOrEmpty(instanceName) || string.Equals(inst, instanceName, StringComparison.OrdinalIgnoreCase))
+                            {
+                                mObj.InvokeMethod("WmiSetBrightness", new object[] { (uint)0, (byte)clamped });
+                                mObj.Dispose();
+                                return true;
+                            }
+                            if (fallbackObj == null) fallbackObj = mObj;
+                            else mObj.Dispose();
+                        }
+                        if (fallbackObj != null)
+                        {
+                            fallbackObj.InvokeMethod("WmiSetBrightness", new object[] { (uint)0, (byte)clamped });
+                            return true;
+                        }
+                    }
+                    finally
+                    {
+                        if (fallbackObj != null) fallbackObj.Dispose();
+                    }
+                }
+            }
+            catch { }
+            return false;
+        }
     }
 
     internal class PhysicalMonitorSlot
@@ -550,6 +646,12 @@ namespace OpenWidget
         public MonitorDdcNative.LUID AdapterId;
         public uint TargetId = 0;
         public bool HdrSdrMode = false;
+        public bool UseWmiBrightness = false;
+        public string WmiInstanceName = "";
+        public string GdiDeviceName = "";
+        public bool PreferHighLevelDdc = false;
+        public uint MinVal = 0;
+        public uint MaxVal = 100;
         public string RawModel = "";
         public string FriendlyName = "Monitör";
         public bool IsPrimary = false;
@@ -799,6 +901,10 @@ namespace OpenWidget
         // Monitor DDC/CI Brightness UI & State (Replaces Twinkle Tray with zero RAM overhead)
         private readonly List<PhysicalMonitorSlot> monitorSlots = new List<PhysicalMonitorSlot>();
         private readonly object monitorHandleLock = new object();
+        private readonly object monitorRefreshLock = new object();
+        private CancellationTokenSource monitorRefreshCts;
+        private EventHandler displaySettingsChangedHandler;
+        private PowerModeChangedEventHandler powerModeChangedHandler;
         private bool monitorLinkSync = false;
         private bool isUpdatingMonitorUi = false;
         private Border monitorCard;
@@ -1652,6 +1758,20 @@ namespace OpenWidget
                         TrimProcessMemory();
                     });
                 }), DispatcherPriority.Loaded);
+
+                if (displaySettingsChangedHandler == null)
+                {
+                    displaySettingsChangedHandler = (ds, de) => ScheduleMonitorRediscovery(1500);
+                    SystemEvents.DisplaySettingsChanged += displaySettingsChangedHandler;
+                }
+                if (powerModeChangedHandler == null)
+                {
+                    powerModeChangedHandler = (ps, pe) =>
+                    {
+                        if (pe.Mode == PowerModes.Resume) ScheduleMonitorRediscovery(1800);
+                    };
+                    SystemEvents.PowerModeChanged += powerModeChangedHandler;
+                }
             };
 
             this.StateChanged += (s, e) =>
@@ -1720,6 +1840,24 @@ namespace OpenWidget
                 try
                 {
                     if (nvmlInitialized) NvmlNative.nvmlShutdown();
+                }
+                catch { }
+                try
+                {
+                    if (displaySettingsChangedHandler != null)
+                    {
+                        SystemEvents.DisplaySettingsChanged -= displaySettingsChangedHandler;
+                        displaySettingsChangedHandler = null;
+                    }
+                    if (powerModeChangedHandler != null)
+                    {
+                        SystemEvents.PowerModeChanged -= powerModeChangedHandler;
+                        powerModeChangedHandler = null;
+                    }
+                    lock (monitorRefreshLock)
+                    {
+                        if (monitorRefreshCts != null) { monitorRefreshCts.Cancel(); monitorRefreshCts.Dispose(); monitorRefreshCts = null; }
+                    }
                 }
                 catch { }
                 CleanupMonitorHandles();
@@ -3036,14 +3174,29 @@ namespace OpenWidget
         private Grid CreateTelemetryBarRow(string icon, string label, string detail, bool useThemeAccent, out TextBlock detailBlock, out Border barFill, out TextBlock pctBlock)
         {
             Grid g = new Grid { Margin = new Thickness(0, 4, 0, 4) };
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto, MaxWidth = 148 });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 0 });
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-            StackPanel left = new StackPanel { Orientation = Orientation.Horizontal };
-            left.Children.Add(CreateMiniIconBadge(icon));
-            left.Children.Add(new TextBlock { Text = label, Foreground = HexBrush("#F5EFEA"), FontSize = 12, FontWeight = FontWeights.Medium, VerticalAlignment = VerticalAlignment.Center });
+            Grid left = new Grid { VerticalAlignment = VerticalAlignment.Center };
+            left.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            left.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 0 });
+            FrameworkElement badge = CreateMiniIconBadge(icon);
+            Grid.SetColumn(badge, 0);
+            left.Children.Add(badge);
+            TextBlock labelBlock = new TextBlock
+            {
+                Text = label,
+                Foreground = HexBrush("#F5EFEA"),
+                FontSize = 12,
+                FontWeight = FontWeights.Medium,
+                VerticalAlignment = VerticalAlignment.Center,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                TextWrapping = TextWrapping.NoWrap
+            };
+            Grid.SetColumn(labelBlock, 1);
+            left.Children.Add(labelBlock);
             Grid.SetColumn(left, 0);
             g.Children.Add(left);
 
@@ -3055,7 +3208,8 @@ namespace OpenWidget
                 VerticalAlignment = VerticalAlignment.Center,
                 HorizontalAlignment = HorizontalAlignment.Right,
                 Margin = new Thickness(4, 0, 8, 0),
-                TextTrimming = TextTrimming.CharacterEllipsis
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                TextWrapping = TextWrapping.NoWrap
             };
             Grid.SetColumn(detailBlock, 1);
             g.Children.Add(detailBlock);
@@ -5284,6 +5438,31 @@ namespace OpenWidget
             }
         }
 
+        private void ScheduleMonitorRediscovery(int delayMs)
+        {
+            try
+            {
+                CancellationTokenSource cts;
+                lock (monitorRefreshLock)
+                {
+                    if (monitorRefreshCts != null)
+                    {
+                        try { monitorRefreshCts.Cancel(); monitorRefreshCts.Dispose(); } catch { }
+                    }
+                    monitorRefreshCts = new CancellationTokenSource();
+                    cts = monitorRefreshCts;
+                }
+                Task.Delay(delayMs, cts.Token).ContinueWith(t =>
+                {
+                    if (!t.IsCanceled)
+                    {
+                        DiscoverAndSyncMonitors(true);
+                    }
+                }, TaskScheduler.Default);
+            }
+            catch { }
+        }
+
         private void QueueMonitorBrightness(int idx, int val)
         {
             if (idx < 0 || idx >= monitorSlots.Count) return;
@@ -5307,12 +5486,36 @@ namespace OpenWidget
                 }
             }
 
-            // Fallback for non-HDR monitors: Coalesced background DDC/CI VCP 0x10 worker
+            // Built-in panel WMI or external DDC/CI background worker
             slot.PendingBrightness = val;
             if (Interlocked.CompareExchange(ref slot.WorkerBusy, 1, 0) == 0)
             {
                 Task.Run(() => RunMonitorDdcWorker(slot));
             }
+        }
+
+        private bool TrySetPhysicalDdcBrightness(PhysicalMonitorSlot slot, uint rawVal)
+        {
+            if (slot.Handle == IntPtr.Zero) return false;
+            if (slot.PreferHighLevelDdc)
+            {
+                if (MonitorDdcNative.SetMonitorBrightness(slot.Handle, rawVal)) return true;
+                if (MonitorDdcNative.SetVCPFeature(slot.Handle, 0x10, rawVal))
+                {
+                    slot.PreferHighLevelDdc = false;
+                    return true;
+                }
+            }
+            else
+            {
+                if (MonitorDdcNative.SetVCPFeature(slot.Handle, 0x10, rawVal)) return true;
+                if (MonitorDdcNative.SetMonitorBrightness(slot.Handle, rawVal))
+                {
+                    slot.PreferHighLevelDdc = true;
+                    return true;
+                }
+            }
+            return false;
         }
 
         private void RunMonitorDdcWorker(PhysicalMonitorSlot slot)
@@ -5324,19 +5527,30 @@ namespace OpenWidget
                     int nextVal = Interlocked.Exchange(ref slot.PendingBrightness, -1);
                     if (nextVal < 0) break;
 
-                    bool ok = false;
-                    IntPtr hMon = slot.Handle;
-                    if (hMon != IntPtr.Zero)
+                    if (slot.UseWmiBrightness)
                     {
-                        ok = MonitorDdcNative.SetVCPFeature(hMon, 0x10, (uint)nextVal);
+                        MonitorDdcNative.SetWmiBrightness(slot.WmiInstanceName, nextVal);
+                        slot.CurrentBrightness = nextVal;
+                        Thread.Sleep(12);
+                        continue;
+                    }
+
+                    uint span = (slot.MaxVal > slot.MinVal) ? (slot.MaxVal - slot.MinVal) : 100u;
+                    uint rawVal = slot.MinVal + (uint)Math.Round((nextVal / 100.0) * span);
+
+                    bool ok = false;
+                    lock (monitorHandleLock)
+                    {
+                        ok = TrySetPhysicalDdcBrightness(slot, rawVal);
                     }
                     if (!ok)
                     {
                         DiscoverAndSyncMonitors(false);
-                        hMon = slot.Handle;
-                        if (hMon != IntPtr.Zero)
+                        lock (monitorHandleLock)
                         {
-                            MonitorDdcNative.SetVCPFeature(hMon, 0x10, (uint)nextVal);
+                            span = (slot.MaxVal > slot.MinVal) ? (slot.MaxVal - slot.MinVal) : 100u;
+                            rawVal = slot.MinVal + (uint)Math.Round((nextVal / 100.0) * span);
+                            TrySetPhysicalDdcBrightness(slot, rawVal);
                         }
                     }
                     slot.CurrentBrightness = nextVal;
@@ -5390,25 +5604,46 @@ namespace OpenWidget
                                     tName.header.id = paths[i].targetInfo.id;
                                     MonitorDdcNative.DisplayConfigGetDeviceInfo(ref tName);
 
-                                    var adv = new MonitorDdcNative.DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO();
-                                    adv.header.type = 9;
-                                    adv.header.size = (uint)Marshal.SizeOf(typeof(MonitorDdcNative.DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO));
-                                    adv.header.adapterId = paths[i].targetInfo.adapterId;
-                                    adv.header.id = paths[i].targetInfo.id;
-                                    MonitorDdcNative.DisplayConfigGetDeviceInfo(ref adv);
+                                    bool hdrEnabled = false;
+                                    var adv2 = new MonitorDdcNative.DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO_2();
+                                    adv2.header.type = 15;
+                                    adv2.header.size = (uint)Marshal.SizeOf(typeof(MonitorDdcNative.DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO_2));
+                                    adv2.header.adapterId = paths[i].targetInfo.adapterId;
+                                    adv2.header.id = paths[i].targetInfo.id;
+                                    if (MonitorDdcNative.DisplayConfigGetDeviceInfo(ref adv2) == 0)
+                                    {
+                                        hdrEnabled = (adv2.activeColorMode == 2);
+                                    }
+                                    else
+                                    {
+                                        var adv = new MonitorDdcNative.DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO();
+                                        adv.header.type = 9;
+                                        adv.header.size = (uint)Marshal.SizeOf(typeof(MonitorDdcNative.DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO));
+                                        adv.header.adapterId = paths[i].targetInfo.adapterId;
+                                        adv.header.id = paths[i].targetInfo.id;
+                                        if (MonitorDdcNative.DisplayConfigGetDeviceInfo(ref adv) == 0)
+                                        {
+                                            hdrEnabled = ((adv.value & 0x2) != 0) && ((adv.value & 0x4) == 0) && ((adv.value & 0x8) == 0);
+                                        }
+                                    }
 
-                                    var sdr = new MonitorDdcNative.DISPLAYCONFIG_SDR_WHITE_LEVEL();
-                                    sdr.header.type = 11;
-                                    sdr.header.size = (uint)Marshal.SizeOf(typeof(MonitorDdcNative.DISPLAYCONFIG_SDR_WHITE_LEVEL));
-                                    sdr.header.adapterId = paths[i].targetInfo.adapterId;
-                                    sdr.header.id = paths[i].targetInfo.id;
-                                    MonitorDdcNative.DisplayConfigGetDeviceInfo(ref sdr);
+                                    int sdrPct = 60;
+                                    if (hdrEnabled)
+                                    {
+                                        var sdr = new MonitorDdcNative.DISPLAYCONFIG_SDR_WHITE_LEVEL();
+                                        sdr.header.type = 11;
+                                        sdr.header.size = (uint)Marshal.SizeOf(typeof(MonitorDdcNative.DISPLAYCONFIG_SDR_WHITE_LEVEL));
+                                        sdr.header.adapterId = paths[i].targetInfo.adapterId;
+                                        sdr.header.id = paths[i].targetInfo.id;
+                                        if (MonitorDdcNative.DisplayConfigGetDeviceInfo(ref sdr) == 0 && sdr.SDRWhiteLevel >= 1000)
+                                        {
+                                            sdrPct = (int)Math.Round(Math.Max(0, Math.Min(100, (sdr.SDRWhiteLevel - 1000.0) / 50.0)));
+                                        }
+                                    }
 
-                                    bool hdrEnabled = (adv.value & 2) != 0;
                                     string model = (tName.monitorFriendlyDeviceName ?? "").Trim();
                                     if (!string.IsNullOrEmpty(model))
                                     {
-                                        int sdrPct = (int)Math.Round(Math.Max(0, Math.Min(100, (sdr.SDRWhiteLevel - 1000.0) / 50.0)));
                                         displayConfigByModel[model] = new PhysicalMonitorSlot
                                         {
                                             AdapterId = paths[i].targetInfo.adapterId,
@@ -5426,7 +5661,10 @@ namespace OpenWidget
                     }
                     catch { }
 
-                    // 2. Enumerate Physical Monitors (for primary/secondary ordering and DDC/CI fallback)
+                    List<MonitorDdcNative.WmiBrightnessInfo> wmiDisplays = MonitorDdcNative.QueryWmiBrightnessDisplays();
+                    HashSet<string> usedWmi = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                    // 2. Enumerate Physical Monitors (for primary/secondary ordering and DDC/CI / WMI fallback)
                     List<PhysicalMonitorSlot> found = new List<PhysicalMonitorSlot>();
                     MonitorDdcNative.EnumDisplayMonitors(IntPtr.Zero, IntPtr.Zero, (IntPtr hMon, IntPtr hdc, ref MonitorDdcNative.RECT r, IntPtr data) =>
                     {
@@ -5435,6 +5673,7 @@ namespace OpenWidget
                             MonitorDdcNative.MONITORINFOEX mi = new MonitorDdcNative.MONITORINFOEX();
                             mi.cbSize = Marshal.SizeOf(typeof(MonitorDdcNative.MONITORINFOEX));
                             MonitorDdcNative.GetMonitorInfo(hMon, ref mi);
+                            string gdiName = mi.szDevice ?? "";
                             bool isPrimary = (mi.dwFlags & 1) != 0 || (r.left == 0 && r.top == 0);
 
                             uint count = 0;
@@ -5449,6 +5688,7 @@ namespace OpenWidget
                                         PhysicalMonitorSlot s = new PhysicalMonitorSlot
                                         {
                                             Handle = arr[i].hPhysicalMonitor,
+                                            GdiDeviceName = gdiName,
                                             RawModel = rawDesc,
                                             FriendlyName = FormatFriendlyMonitorName(rawDesc),
                                             IsPrimary = isPrimary
@@ -5471,12 +5711,50 @@ namespace OpenWidget
                                             }
                                         }
 
-                                        if (readHardwareValues && !s.HdrSdrMode && s.Handle != IntPtr.Zero)
+                                        if (!s.HdrSdrMode && s.Handle != IntPtr.Zero)
                                         {
-                                            uint vct, cur, max;
-                                            if (MonitorDdcNative.GetVCPFeatureAndVCPFeatureReply(s.Handle, 0x10, out vct, out cur, out max) && max > 0)
+                                            uint hlMin = 0, hlCur = 0, hlMax = 100;
+                                            bool ddcOk = false;
+                                            if (MonitorDdcNative.GetMonitorBrightness(s.Handle, out hlMin, out hlCur, out hlMax) && hlMax > hlMin)
                                             {
-                                                s.CurrentBrightness = (int)Math.Round((cur * 100.0) / max);
+                                                s.MinVal = hlMin;
+                                                s.MaxVal = hlMax;
+                                                s.PreferHighLevelDdc = true;
+                                                if (readHardwareValues)
+                                                {
+                                                    s.CurrentBrightness = Math.Max(0, Math.Min(100, (int)Math.Round(((hlCur - hlMin) * 100.0) / (hlMax - hlMin))));
+                                                }
+                                                ddcOk = true;
+                                            }
+                                            else
+                                            {
+                                                uint vct, cur, max;
+                                                if (MonitorDdcNative.GetVCPFeatureAndVCPFeatureReply(s.Handle, 0x10, out vct, out cur, out max) && max > 0)
+                                                {
+                                                    s.MinVal = 0;
+                                                    s.MaxVal = max;
+                                                    s.PreferHighLevelDdc = false;
+                                                    if (readHardwareValues)
+                                                    {
+                                                        s.CurrentBrightness = Math.Max(0, Math.Min(100, (int)Math.Round((cur * 100.0) / max)));
+                                                    }
+                                                    ddcOk = true;
+                                                }
+                                            }
+
+                                            if (!ddcOk && wmiDisplays.Count > 0)
+                                            {
+                                                for (int w = 0; w < wmiDisplays.Count; w++)
+                                                {
+                                                    if (!usedWmi.Contains(wmiDisplays[w].InstanceName))
+                                                    {
+                                                        s.UseWmiBrightness = true;
+                                                        s.WmiInstanceName = wmiDisplays[w].InstanceName;
+                                                        usedWmi.Add(s.WmiInstanceName);
+                                                        if (readHardwareValues) s.CurrentBrightness = wmiDisplays[w].CurrentBrightness;
+                                                        break;
+                                                    }
+                                                }
                                             }
                                         }
                                         found.Add(s);
@@ -5510,9 +5788,15 @@ namespace OpenWidget
                             if (i < monitorSlots.Count)
                             {
                                 monitorSlots[i].Handle = found[i].Handle;
+                                monitorSlots[i].GdiDeviceName = found[i].GdiDeviceName;
                                 monitorSlots[i].AdapterId = found[i].AdapterId;
                                 monitorSlots[i].TargetId = found[i].TargetId;
                                 monitorSlots[i].HdrSdrMode = found[i].HdrSdrMode;
+                                monitorSlots[i].UseWmiBrightness = found[i].UseWmiBrightness;
+                                monitorSlots[i].WmiInstanceName = found[i].WmiInstanceName;
+                                monitorSlots[i].PreferHighLevelDdc = found[i].PreferHighLevelDdc;
+                                monitorSlots[i].MinVal = found[i].MinVal;
+                                monitorSlots[i].MaxVal = found[i].MaxVal;
                                 monitorSlots[i].RawModel = found[i].RawModel;
                                 monitorSlots[i].FriendlyName = found[i].FriendlyName;
                                 if (readHardwareValues) monitorSlots[i].CurrentBrightness = found[i].CurrentBrightness;
