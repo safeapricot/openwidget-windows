@@ -14430,7 +14430,7 @@ namespace OpenWidget
             renderSelectedDay();
 
             // Manual Time Entry Modal Overlay
-            bool manualAddIsGame = false;
+            int manualAddCategory = 0; // 0 = Study, 1 = Gaming, 2 = PC Uptime (Default)
             Border manualAddOverlay = new Border
             {
                 Visibility = Visibility.Collapsed,
@@ -14441,7 +14441,7 @@ namespace OpenWidget
 
             Border manualModalCard = new Border
             {
-                Width = 345,
+                Width = 370,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
                 CornerRadius = new CornerRadius(13),
@@ -14473,20 +14473,28 @@ namespace OpenWidget
             mHdr.Children.Add(btnCloseManual);
             mStack.Children.Add(mHdr);
 
-            UniformGrid catSwitch = new UniformGrid { Columns = 2, Margin = new Thickness(0, 0, 0, 10) };
+            UniformGrid catSwitch = new UniformGrid { Columns = 3, Margin = new Thickness(0, 0, 0, 10) };
             Button btnCatStudy = CreateStretchSettingsButton("#2A221E", timerStudyColorHex, L("Ders kategorisine ekle", "Add to Study"));
-            btnCatStudy.Margin = new Thickness(0, 0, 4, 0);
-            btnCatStudy.Padding = new Thickness(8, 6, 8, 6);
-            TextBlock lblCatStudy = new TextBlock { Text = L("📚 Ders", "📚 Study"), Foreground = HexBrush("#FAF6F2"), FontSize = 11.5, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center };
+            btnCatStudy.Margin = new Thickness(0, 0, 3, 0);
+            btnCatStudy.Padding = new Thickness(6, 6, 6, 6);
+            TextBlock lblCatStudy = new TextBlock { Text = L("📚 Ders", "📚 Study"), Foreground = HexBrush("#FAF6F2"), FontSize = 11, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center };
             btnCatStudy.Content = lblCatStudy;
 
             Button btnCatGame = CreateStretchSettingsButton("#1D1815", "#3A2F29", L("Oyun kategorisine ekle", "Add to Gaming"));
-            btnCatGame.Margin = new Thickness(4, 0, 0, 0);
-            btnCatGame.Padding = new Thickness(8, 6, 8, 6);
-            TextBlock lblCatGame = new TextBlock { Text = L("🎮 Oyun", "🎮 Gaming"), Foreground = HexBrush("#9E8E82"), FontSize = 11.5, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center };
+            btnCatGame.Margin = new Thickness(3, 0, 3, 0);
+            btnCatGame.Padding = new Thickness(6, 6, 6, 6);
+            TextBlock lblCatGame = new TextBlock { Text = L("🎮 Oyun", "🎮 Gaming"), Foreground = HexBrush("#9E8E82"), FontSize = 11, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center };
             btnCatGame.Content = lblCatGame;
+
+            Button btnCatPc = CreateStretchSettingsButton("#1D1815", "#3A2F29", L("Default PC açık kalma süresine ekle", "Add to PC Uptime (Default)"));
+            btnCatPc.Margin = new Thickness(3, 0, 0, 0);
+            btnCatPc.Padding = new Thickness(6, 6, 6, 6);
+            TextBlock lblCatPc = new TextBlock { Text = L("🖥 PC Açık", "🖥 PC Uptime"), Foreground = HexBrush("#9E8E82"), FontSize = 11, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center };
+            btnCatPc.Content = lblCatPc;
+
             catSwitch.Children.Add(btnCatStudy);
             catSwitch.Children.Add(btnCatGame);
+            catSwitch.Children.Add(btnCatPc);
             mStack.Children.Add(catSwitch);
 
             StackPanel gameNamePanel = new StackPanel { Visibility = Visibility.Collapsed, Margin = new Thickness(0, 0, 0, 10) };
@@ -14507,18 +14515,23 @@ namespace OpenWidget
 
             Action syncCatUi = () =>
             {
-                btnCatStudy.Background = HexBrush(!manualAddIsGame ? "#2A221E" : "#1D1815");
-                btnCatStudy.BorderBrush = HexBrush(!manualAddIsGame ? timerStudyColorHex : "#3A2F29");
-                lblCatStudy.Foreground = HexBrush(!manualAddIsGame ? "#FAF6F2" : "#9E8E82");
+                btnCatStudy.Background = HexBrush(manualAddCategory == 0 ? "#2A221E" : "#1D1815");
+                btnCatStudy.BorderBrush = HexBrush(manualAddCategory == 0 ? timerStudyColorHex : "#3A2F29");
+                lblCatStudy.Foreground = HexBrush(manualAddCategory == 0 ? "#FAF6F2" : "#9E8E82");
 
-                btnCatGame.Background = HexBrush(manualAddIsGame ? "#2A221E" : "#1D1815");
-                btnCatGame.BorderBrush = HexBrush(manualAddIsGame ? timerGameColorHex : "#3A2F29");
-                lblCatGame.Foreground = HexBrush(manualAddIsGame ? "#FAF6F2" : "#9E8E82");
+                btnCatGame.Background = HexBrush(manualAddCategory == 1 ? "#2A221E" : "#1D1815");
+                btnCatGame.BorderBrush = HexBrush(manualAddCategory == 1 ? timerGameColorHex : "#3A2F29");
+                lblCatGame.Foreground = HexBrush(manualAddCategory == 1 ? "#FAF6F2" : "#9E8E82");
 
-                gameNamePanel.Visibility = manualAddIsGame ? Visibility.Visible : Visibility.Collapsed;
+                btnCatPc.Background = HexBrush(manualAddCategory == 2 ? "#2A221E" : "#1D1815");
+                btnCatPc.BorderBrush = HexBrush(manualAddCategory == 2 ? accentColorHex : "#3A2F29");
+                lblCatPc.Foreground = HexBrush(manualAddCategory == 2 ? "#FAF6F2" : "#9E8E82");
+
+                gameNamePanel.Visibility = manualAddCategory == 1 ? Visibility.Visible : Visibility.Collapsed;
             };
-            btnCatStudy.Click += (s, e) => { manualAddIsGame = false; syncCatUi(); };
-            btnCatGame.Click += (s, e) => { manualAddIsGame = true; syncCatUi(); };
+            btnCatStudy.Click += (s, e) => { manualAddCategory = 0; syncCatUi(); };
+            btnCatGame.Click += (s, e) => { manualAddCategory = 1; syncCatUi(); };
+            btnCatPc.Click += (s, e) => { manualAddCategory = 2; syncCatUi(); };
 
             Grid hmInputs = new Grid { Margin = new Thickness(0, 0, 0, 8) };
             hmInputs.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -14612,7 +14625,7 @@ namespace OpenWidget
                     return;
                 }
                 DailyActivityRecord rec = GetOrCreateActivityRecord(selectedDate);
-                if (manualAddIsGame)
+                if (manualAddCategory == 1)
                 {
                     rec.GameSeconds += addSec;
                     string rawName = txtManualGameName.Text.Trim();
@@ -14620,6 +14633,10 @@ namespace OpenWidget
                     int prevSec;
                     rec.GameBreakdown.TryGetValue(gKey, out prevSec);
                     rec.GameBreakdown[gKey] = prevSec + addSec;
+                }
+                else if (manualAddCategory == 2)
+                {
+                    rec.PcSeconds = Math.Min(86400, rec.PcSeconds + addSec);
                 }
                 else
                 {
@@ -14630,7 +14647,8 @@ namespace OpenWidget
                 BuildTimerHeatmapGrid();
                 UpdateTimerWidgetUi();
                 manualAddOverlay.Visibility = Visibility.Collapsed;
-                ShowToast(string.Format("✓ {0} ({1})", FormatDurationLocalized(addSec), manualAddIsGame ? L("Oyun", "Gaming") : L("Ders", "Study")));
+                string catLabel = manualAddCategory == 1 ? L("Oyun", "Gaming") : (manualAddCategory == 2 ? L("PC Açık", "PC Uptime") : L("Ders", "Study"));
+                ShowToast(string.Format("✓ {0} ({1})", FormatDurationLocalized(addSec), catLabel));
             };
             Grid.SetColumn(btnConfirmManual, 2);
             footerBtns.Children.Add(btnConfirmManual);
