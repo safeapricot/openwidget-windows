@@ -1038,6 +1038,8 @@ namespace OpenWidget
         private int timerSaveTickCounter = 0;
         private DateTime activeTrackingDate = DateTime.Today;
         private string activityDataFilePath;
+        private string lastSavedActivityPayload = null;
+        private static readonly object atomicFileIoLock = new object();
         private Window timerWindow;
         private Border timerOuterBorder;
         private WindowChrome timerWindowChrome;
@@ -1094,7 +1096,15 @@ namespace OpenWidget
         private int lastTaskbarOverlayY = int.MinValue;
         private int lastTaskbarOverlayW = int.MinValue;
         private bool taskbarOverlayHiddenByFullscreen = false;
-        private struct TaskbarDeviceItem { public string Kind; public string Name; public int Pct; public string Detail; }
+        private bool notifyLowBattery = true;
+        private readonly HashSet<string> lowBatteryNotifiedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private int lastMousePctState = -1;
+        private int lastHeadsetPctState = -1;
+        private int lastPadPctState = -1;
+        private bool lastMouseChargingState = false;
+        private bool lastHeadsetChargingState = false;
+        private bool lastPadChargingState = false;
+        private struct TaskbarDeviceItem { public string Kind; public string Name; public int Pct; public string Detail; public bool IsCharging; }
         private readonly List<TaskbarDeviceItem> latestTaskbarDevices = new List<TaskbarDeviceItem>();
 
         // Custom Timer Mode Colors & Settings / Detailed View Windows
@@ -1264,14 +1274,137 @@ namespace OpenWidget
             InitializeTimers();
         }
 
+        private static bool IsValidTextFile(string path)
+        {
+            try
+            {
+                if (!File.Exists(path)) return false;
+                FileInfo fi = new FileInfo(path);
+                if (fi.Length <= 0) return false;
+                int checkLen = (int)Math.Min(fi.Length, 512);
+                byte[] buf = new byte[checkLen];
+                using (FileStream fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                {
+                    int read = fs.Read(buf, 0, checkLen);
+                    if (read <= 0) return false;
+                    bool hasNonWhitespace = false;
+                    for (int i = 0; i < read; i++)
+                    {
+                        byte b = buf[i];
+                        if (b == 0) return false; // NUL byte indicates NTFS crash truncation / corruption
+                        if (b != (byte)' ' && b != (byte)'\t' && b != (byte)'\r' && b != (byte)'\n')
+                            hasNonWhitespace = true;
+                    }
+                    return hasNonWhitespace;
+                }
+            }
+            catch { return false; }
+        }
+
+        private static void WriteAllTextAtomic(string path, string content, Encoding encoding)
+        {
+            if (string.IsNullOrEmpty(path)) return;
+            lock (atomicFileIoLock)
+            {
+                string tmpPath = path + ".tmp";
+                string bakPath = path + ".bak";
+                byte[] data = (encoding ?? new UTF8Encoding(false)).GetBytes(content ?? "");
+
+                // 1. Write to temp file with WriteThrough + Flush(true) so bytes reach physical disk before rename
+                using (FileStream fs = new FileStream(tmpPath, FileMode.Create, FileAccess.Write, FileShare.None, 4096, FileOptions.WriteThrough))
+                {
+                    if (data.Length > 0) fs.Write(data, 0, data.Length);
+                    fs.Flush(true);
+                }
+
+                // 2. Atomically replace target while preserving previous healthy version as .bak
+                bool targetExists = File.Exists(path);
+                if (targetExists)
+                {
+                    bool targetHealthy = IsValidTextFile(path);
+                    for (int attempt = 0; attempt < 3; attempt++)
+                    {
+                        try
+                        {
+                            if (targetHealthy)
+                            {
+                                // ReplaceFileW atomically rotates path -> bakPath and tmpPath -> path
+                                File.Replace(tmpPath, path, bakPath, true);
+                            }
+                            else
+                            {
+                                // Do not overwrite a potentially healthy .bak with a corrupted target
+                                File.Copy(tmpPath, path, true);
+                                try { File.Delete(tmpPath); } catch { }
+                            }
+                            return;
+                        }
+                        catch (IOException)
+                        {
+                            if (attempt < 2) System.Threading.Thread.Sleep(25);
+                        }
+                        catch (UnauthorizedAccessException)
+                        {
+                            if (attempt < 2) System.Threading.Thread.Sleep(25);
+                        }
+                    }
+
+                    // Fallback if File.Replace is blocked by AV/lock
+                    if (targetHealthy)
+                    {
+                        try { File.Copy(path, bakPath, true); } catch { }
+                    }
+                    File.Copy(tmpPath, path, true);
+                    try { File.Delete(tmpPath); } catch { }
+                }
+                else
+                {
+                    File.Move(tmpPath, path);
+                    try
+                    {
+                        if (!File.Exists(bakPath)) File.Copy(path, bakPath, false);
+                    }
+                    catch { }
+                }
+            }
+        }
+
+        private static string[] ReadAllLinesCrashSafe(string path, Encoding encoding)
+        {
+            if (string.IsNullOrEmpty(path)) return null;
+            Encoding enc = encoding ?? Encoding.UTF8;
+            string[] candidates = new string[] { path, path + ".bak", path + ".tmp" };
+            for (int i = 0; i < candidates.Length; i++)
+            {
+                string c = candidates[i];
+                if (!IsValidTextFile(c)) continue;
+                try
+                {
+                    string[] lines = File.ReadAllLines(c, enc);
+                    if (lines != null && lines.Length > 0)
+                    {
+                        // If recovered from .bak or .tmp because primary was missing/corrupted, self-heal primary
+                        if (i > 0)
+                        {
+                            try { WriteAllTextAtomic(path, string.Join(Environment.NewLine, lines) + Environment.NewLine, new UTF8Encoding(false)); } catch { }
+                        }
+                        return lines;
+                    }
+                }
+                catch { }
+            }
+            return null;
+        }
+
         private void LoadSettings()
         {
             EnsureAutoStart(true);
             try
             {
-                if (File.Exists(settingsFilePath))
+                string[] settingsLines = ReadAllLinesCrashSafe(settingsFilePath, Encoding.UTF8);
+                if (settingsLines != null)
                 {
-                    foreach (string line in File.ReadAllLines(settingsFilePath))
+                    foreach (string line in settingsLines)
                     {
                         string[] kv = line.Split('=');
                         if (kv.Length == 2)
@@ -1420,6 +1553,10 @@ namespace OpenWidget
                             {
                                 showTaskbarDevices = (v == "1" || v.Equals("true", StringComparison.OrdinalIgnoreCase));
                             }
+                            else if (k == "NotifyLowBattery")
+                            {
+                                notifyLowBattery = (v == "1" || v.Equals("true", StringComparison.OrdinalIgnoreCase));
+                            }
                             else if (k == "TimerStudyColor" && v.StartsWith("#") && (v.Length == 7 || v.Length == 9))
                             {
                                 timerStudyColorHex = v;
@@ -1482,9 +1619,10 @@ namespace OpenWidget
                 sb.AppendLine("PomoFocusMin=" + pomoFocusMinutes);
                 sb.AppendLine("PomoBreakMin=" + pomoBreakMinutes);
                 sb.AppendLine("ShowTaskbarDevices=" + (showTaskbarDevices ? "1" : "0"));
+                sb.AppendLine("NotifyLowBattery=" + (notifyLowBattery ? "1" : "0"));
                 sb.AppendLine("TimerStudyColor=" + timerStudyColorHex);
                 sb.AppendLine("TimerGameColor=" + timerGameColorHex);
-                File.WriteAllText(settingsFilePath, sb.ToString());
+                WriteAllTextAtomic(settingsFilePath, sb.ToString(), new UTF8Encoding(false));
             }
             catch { }
         }
@@ -2202,6 +2340,7 @@ namespace OpenWidget
                 {
                     fill.Background = accentBrush;
                 }
+                RefreshWirelessRowColors();
 
                 if (sliderTrackContainer != null)
                 {
@@ -2752,14 +2891,14 @@ namespace OpenWidget
             };
             secContainerWireless.Children.Add(wirelessHeaderGrid);
 
-            rowMouse = CreateTelemetryBarRow("🖱", "Scyrox V8", "1000 Hz • Taranıyor...", true, out txtMouseDetail, out barMouseFill, out txtMousePct);
+            rowMouse = CreateTelemetryBarRow("🖱", "Scyrox V8", "1000 Hz • Taranıyor...", false, out txtMouseDetail, out barMouseFill, out txtMousePct);
             panelWirelessContent.Children.Add(rowMouse);
 
-            rowHeadset = CreateTelemetryBarRow("🎧", "HyperX Cloud III", "2.4GHz • Açık", true, out txtHeadsetDetail, out barHeadsetFill, out txtHeadsetPct);
+            rowHeadset = CreateTelemetryBarRow("🎧", "HyperX Cloud III", "2.4GHz • Açık", false, out txtHeadsetDetail, out barHeadsetFill, out txtHeadsetPct);
             rowHeadset.Visibility = Visibility.Collapsed;
             panelWirelessContent.Children.Add(rowHeadset);
 
-            rowController = CreateTelemetryBarRow("🎮", "Kablosuz Kumanda", "Bağlı", true, out txtControllerDetail, out barControllerFill, out txtControllerPct);
+            rowController = CreateTelemetryBarRow("🎮", "Kablosuz Kumanda", "Bağlı", false, out txtControllerDetail, out barControllerFill, out txtControllerPct);
             rowController.Visibility = Visibility.Collapsed;
             panelWirelessContent.Children.Add(rowController);
 
@@ -4352,6 +4491,71 @@ namespace OpenWidget
             tbDevStack.Children.Add(tbDevTop);
             taskbarDevCard.Child = tbDevStack;
             tabPanels[1].Children.Add(taskbarDevCard);
+
+            // Low Battery Notification Toggle Card (<= 10%)
+            Border lowBatCard = new Border
+            {
+                CornerRadius = new CornerRadius(11),
+                Background = HexBrush(notifyLowBattery ? "#2C221C" : "#221C18"),
+                BorderBrush = HexBrush(notifyLowBattery ? accentColorHex : "#3B302A"),
+                BorderThickness = new Thickness(1.2),
+                Padding = new Thickness(13, 11, 13, 11),
+                Margin = new Thickness(0, 0, 0, 10)
+            };
+            Grid lowBatTop = new Grid();
+            lowBatTop.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            lowBatTop.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            StackPanel lowBatInfo = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0) };
+            lowBatInfo.Children.Add(new TextBlock
+            {
+                Text = "🔔 Düşük Pil Bildirimi (%10 ve altı)",
+                Foreground = HexBrush("#FAF6F2"),
+                FontSize = 12,
+                FontWeight = FontWeights.Bold,
+                TextWrapping = TextWrapping.Wrap
+            });
+            lowBatInfo.Children.Add(new TextBlock
+            {
+                Text = "Kablosuz cihazların pili %10 veya altına düştüğünde Windows bildirimi gönderir (şarjda yeşil, %10 altında kırmızı görünür)",
+                Foreground = HexBrush("#9E8E82"),
+                FontSize = 10.5,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 2, 0, 0)
+            });
+            Grid.SetColumn(lowBatInfo, 0);
+            lowBatTop.Children.Add(lowBatInfo);
+
+            Button btnToggleLowBat = CreateStyledIconButton(
+                notifyLowBattery ? "#38281E" : "#1D1815",
+                notifyLowBattery ? accentColorHex : "#3E322B",
+                "Düşük pil bildirimlerini aç veya kapat");
+            btnToggleLowBat.Padding = new Thickness(11, 5, 11, 5);
+            btnToggleLowBat.MinWidth = 72;
+            btnToggleLowBat.VerticalAlignment = VerticalAlignment.Center;
+            TextBlock txtToggleLowBat = new TextBlock
+            {
+                Text = notifyLowBattery ? "✓ Açık" : "Kapalı",
+                Foreground = HexBrush(notifyLowBattery ? "#FAF6F2" : "#8E7F74"),
+                FontSize = 11,
+                FontWeight = FontWeights.Bold
+            };
+            btnToggleLowBat.Content = txtToggleLowBat;
+            btnToggleLowBat.Click += (s, e) =>
+            {
+                notifyLowBattery = !notifyLowBattery;
+                SaveSettings();
+                lowBatCard.Background = HexBrush(notifyLowBattery ? "#2C221C" : "#221C18");
+                lowBatCard.BorderBrush = HexBrush(notifyLowBattery ? accentColorHex : "#3B302A");
+                btnToggleLowBat.Background = HexBrush(notifyLowBattery ? "#38281E" : "#1D1815");
+                btnToggleLowBat.BorderBrush = HexBrush(notifyLowBattery ? accentColorHex : "#3E322B");
+                txtToggleLowBat.Text = notifyLowBattery ? "✓ Açık" : "Kapalı";
+                txtToggleLowBat.Foreground = HexBrush(notifyLowBattery ? "#FAF6F2" : "#8E7F74");
+            };
+            Grid.SetColumn(btnToggleLowBat, 1);
+            lowBatTop.Children.Add(btnToggleLowBat);
+            lowBatCard.Child = lowBatTop;
+            tabPanels[1].Children.Add(lowBatCard);
 
             // =========================================================
             // TAB 2: MODULE ORDER, VISIBILITY & TELEMETRY SUB-TOGGLES
@@ -6207,6 +6411,7 @@ namespace OpenWidget
                 string mouseDetail = "Alıcı Takılı Değil";
                 string mousePctText = "—";
                 int mouseBarPct = 0;
+                bool mouseCharging = false;
 
                 if (cachedScyroxPath != null)
                 {
@@ -6250,6 +6455,7 @@ namespace OpenWidget
                                 {
                                     lastScyroxPct = pct;
                                     mouseBarPct = pct;
+                                    mouseCharging = charging;
                                     mousePctText = "%" + pct;
                                     if (charging)
                                         mouseDetail = lastScyroxHzText + " • ⚡ Şarjda";
@@ -6287,6 +6493,7 @@ namespace OpenWidget
                 string headsetDetail = "2.4GHz • Açık";
                 string headsetPctText = "—";
                 int headsetBarPct = 0;
+                bool headsetCharging = false;
 
                 if (cachedHyperXPath != null)
                 {
@@ -6316,6 +6523,7 @@ namespace OpenWidget
                                     {
                                         if (rxChg[4] == 1 || rxChg[3] == 1) isCharging = true;
                                     }
+                                    headsetCharging = isCharging;
                                     headsetDetail = isCharging ? "Wireless • ⚡ Şarjda" : "2.4GHz • Açık";
                                 }
                             }
@@ -6336,6 +6544,7 @@ namespace OpenWidget
                 string padDetail = "Bağlı Değil";
                 string padPctText = "Kapalı";
                 int padBarPct = 0;
+                bool padCharging = false;
 
                 try
                 {
@@ -6351,6 +6560,7 @@ namespace OpenWidget
                                 if (bat.BatteryType == 1)
                                 {
                                     padBarPct = 100;
+                                    padCharging = true;
                                     padPctText = "%100";
                                     padDetail = "Bağlı • Kablolu / Şarjda";
                                 }
@@ -6402,6 +6612,8 @@ namespace OpenWidget
                     bool visChanged = false;
 
                     bool showMouse = mouseBarPct > 0;
+                    lastMousePctState = showMouse ? mouseBarPct : -1;
+                    lastMouseChargingState = mouseCharging;
                     if (rowMouse != null)
                     {
                         Visibility targetMouseVis = showMouse ? Visibility.Visible : Visibility.Collapsed;
@@ -6411,10 +6623,13 @@ namespace OpenWidget
                             txtMouseDetail.Text = mouseDetail;
                             txtMousePct.Text = mousePctText;
                             barMouseFill.Width = Math.Max(3, (42.0 * mouseBarPct) / 100.0);
+                            CheckAndNotifyLowBattery("mouse:scyrox", "Scyrox V8", mouseBarPct, mouseCharging);
                         }
                     }
 
                     bool showHeadset = headsetBarPct > 0;
+                    lastHeadsetPctState = showHeadset ? headsetBarPct : -1;
+                    lastHeadsetChargingState = headsetCharging;
                     if (rowHeadset != null)
                     {
                         Visibility targetHeadsetVis = showHeadset ? Visibility.Visible : Visibility.Collapsed;
@@ -6424,10 +6639,13 @@ namespace OpenWidget
                             txtHeadsetDetail.Text = headsetDetail;
                             txtHeadsetPct.Text = headsetPctText;
                             barHeadsetFill.Width = Math.Max(3, (42.0 * headsetBarPct) / 100.0);
+                            CheckAndNotifyLowBattery("headset:hyperx", "HyperX Cloud III", headsetBarPct, headsetCharging);
                         }
                     }
 
                     bool showPad = padConnected && padBarPct > 0;
+                    lastPadPctState = showPad ? padBarPct : -1;
+                    lastPadChargingState = padCharging;
                     if (rowController != null)
                     {
                         Visibility targetPadVis = showPad ? Visibility.Visible : Visibility.Collapsed;
@@ -6437,8 +6655,11 @@ namespace OpenWidget
                             txtControllerDetail.Text = padDetail;
                             txtControllerPct.Text = padPctText;
                             barControllerFill.Width = Math.Max(3, (42.0 * padBarPct) / 100.0);
+                            CheckAndNotifyLowBattery("gamepad:controller", "Kablosuz Kumanda", padBarPct, padCharging);
                         }
                     }
+
+                    RefreshWirelessRowColors();
 
                     bool anyDeviceVisible = showMouse || showHeadset || showPad;
                     anyWirelessDeviceActive = anyDeviceVisible;
@@ -6456,11 +6677,11 @@ namespace OpenWidget
 
                     latestTaskbarDevices.Clear();
                     if (showHeadset)
-                        latestTaskbarDevices.Add(new TaskbarDeviceItem { Kind = "Headset", Name = "HyperX Cloud III Wireless", Pct = headsetBarPct, Detail = headsetDetail });
+                        latestTaskbarDevices.Add(new TaskbarDeviceItem { Kind = "Headset", Name = "HyperX Cloud III Wireless", Pct = headsetBarPct, Detail = headsetDetail, IsCharging = headsetCharging });
                     if (showMouse)
-                        latestTaskbarDevices.Add(new TaskbarDeviceItem { Kind = "Mouse", Name = "Scyrox V8", Pct = mouseBarPct, Detail = mouseDetail });
+                        latestTaskbarDevices.Add(new TaskbarDeviceItem { Kind = "Mouse", Name = "Scyrox V8", Pct = mouseBarPct, Detail = mouseDetail, IsCharging = mouseCharging });
                     if (showPad)
-                        latestTaskbarDevices.Add(new TaskbarDeviceItem { Kind = "Gamepad", Name = "Kablosuz Kumanda", Pct = padBarPct, Detail = padDetail });
+                        latestTaskbarDevices.Add(new TaskbarDeviceItem { Kind = "Gamepad", Name = "Kablosuz Kumanda", Pct = padBarPct, Detail = padDetail, IsCharging = padCharging });
                     RefreshTaskbarDevicesOverlayUi();
                 });
             }
@@ -6468,6 +6689,54 @@ namespace OpenWidget
             finally
             {
                 Interlocked.Exchange(ref wirelessPollingBusy, 0);
+            }
+        }
+
+        private Brush GetWirelessStatusBrush(int pct, bool isCharging)
+        {
+            if (isCharging) return HexBrush("#22C55E");
+            if (pct > 0 && pct <= 10) return HexBrush("#EF4444");
+            return HexBrush(accentColorHex);
+        }
+
+        private void RefreshWirelessRowColors()
+        {
+            Brush mouseBr = GetWirelessStatusBrush(lastMousePctState, lastMouseChargingState);
+            if (barMouseFill != null) barMouseFill.Background = mouseBr;
+            if (txtMousePct != null) txtMousePct.Foreground = mouseBr;
+
+            Brush headsetBr = GetWirelessStatusBrush(lastHeadsetPctState, lastHeadsetChargingState);
+            if (barHeadsetFill != null) barHeadsetFill.Background = headsetBr;
+            if (txtHeadsetPct != null) txtHeadsetPct.Foreground = headsetBr;
+
+            Brush padBr = GetWirelessStatusBrush(lastPadPctState, lastPadChargingState);
+            if (barControllerFill != null) barControllerFill.Background = padBr;
+            if (txtControllerPct != null) txtControllerPct.Foreground = padBr;
+        }
+
+        private void CheckAndNotifyLowBattery(string key, string displayName, int pct, bool isCharging)
+        {
+            if (string.IsNullOrEmpty(key)) return;
+            if (isCharging || pct > 20)
+            {
+                lowBatteryNotifiedKeys.Remove(key);
+                return;
+            }
+            if (!notifyLowBattery || pct <= 0 || pct > 10) return;
+            if (lowBatteryNotifiedKeys.Add(key))
+            {
+                try
+                {
+                    if (trayIcon != null)
+                    {
+                        trayIcon.ShowBalloonTip(
+                            5000,
+                            "Düşük Pil Uyarısı",
+                            string.Format("{0} şarjı %{1} seviyesine düştü. Şarja takmanız önerilir.", displayName, pct),
+                            System.Windows.Forms.ToolTipIcon.Warning);
+                    }
+                }
+                catch { }
             }
         }
 
@@ -6620,7 +6889,7 @@ namespace OpenWidget
             sigSb.Append(lightTheme ? "L|" : "D|");
             for (int i = 0; i < latestTaskbarDevices.Count; i++)
             {
-                sigSb.Append(latestTaskbarDevices[i].Kind).Append(':').Append(latestTaskbarDevices[i].Pct).Append(':').Append(latestTaskbarDevices[i].Detail).Append('|');
+                sigSb.Append(latestTaskbarDevices[i].Kind).Append(':').Append(latestTaskbarDevices[i].Pct).Append(':').Append(latestTaskbarDevices[i].IsCharging ? 'C' : 'N').Append(':').Append(latestTaskbarDevices[i].Detail).Append('|');
             }
             string sig = sigSb.ToString();
             if (string.Equals(sig, lastTaskbarDevicesSignature, StringComparison.Ordinal))
@@ -6632,14 +6901,15 @@ namespace OpenWidget
 
             taskbarDevicesPanel.Children.Clear();
             Brush normalFg = HexBrush(lightTheme ? "#1B1B1B" : "#F3F3F3");
-            Brush lowFg = HexBrush(lightTheme ? "#C42B1C" : "#FF6B6B");
+            Brush lowFg = HexBrush(lightTheme ? "#C42B1C" : "#FF5A5A");
+            Brush chgFg = HexBrush(lightTheme ? "#16A34A" : "#4ADE80");
             Brush hoverBg = HexBrush(lightTheme ? "#16000000" : "#1CFFFFFF");
 
             for (int i = 0; i < latestTaskbarDevices.Count; i++)
             {
                 TaskbarDeviceItem d = latestTaskbarDevices[i];
-                bool low = d.Pct <= 15;
-                Brush fg = low ? lowFg : normalFg;
+                bool low = !d.IsCharging && d.Pct > 0 && d.Pct <= 10;
+                Brush fg = d.IsCharging ? chgFg : (low ? lowFg : normalFg);
 
                 Border pill = new Border
                 {
@@ -8157,7 +8427,11 @@ namespace OpenWidget
                     accentColorHex,
                     cleanTitle);
 
-                File.AppendAllLines(customFile, new string[] { line }, new UTF8Encoding(false));
+                List<string> existingCustom = new List<string>();
+                string[] prevCustom = ReadAllLinesCrashSafe(customFile, Encoding.UTF8);
+                if (prevCustom != null) existingCustom.AddRange(prevCustom);
+                existingCustom.Add(line);
+                WriteAllTextAtomic(customFile, string.Join(Environment.NewLine, existingCustom.ToArray()) + Environment.NewLine, new UTF8Encoding(false));
                 txtCalQuickTitle.Text = "";
                 calQuickAddPanel.Visibility = Visibility.Collapsed;
                 Task.Run(() => LoadAndSyncCalendarEventsAsync(false));
@@ -8171,14 +8445,15 @@ namespace OpenWidget
             try
             {
                 string customFile = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "custom_events.dat");
-                if (File.Exists(customFile))
+                string[] existingCustom = ReadAllLinesCrashSafe(customFile, Encoding.UTF8);
+                if (existingCustom != null)
                 {
                     List<string> kept = new List<string>();
-                    foreach (string l in File.ReadAllLines(customFile, Encoding.UTF8))
+                    foreach (string l in existingCustom)
                     {
                         if (l.Trim() != rawLine.Trim()) kept.Add(l);
                     }
-                    File.WriteAllLines(customFile, kept.ToArray(), new UTF8Encoding(false));
+                    WriteAllTextAtomic(customFile, kept.Count > 0 ? (string.Join(Environment.NewLine, kept.ToArray()) + Environment.NewLine) : "", new UTF8Encoding(false));
                 }
                 Task.Run(() => LoadAndSyncCalendarEventsAsync(false));
                 ShowToast("Etkinlik silindi");
@@ -8216,9 +8491,10 @@ namespace OpenWidget
                 }
 
                 // 2. Load user's custom quick-added desktop events from custom_events.dat
-                if (File.Exists(customPath))
+                string[] customLines = ReadAllLinesCrashSafe(customPath, Encoding.UTF8);
+                if (customLines != null)
                 {
-                    foreach (string line in File.ReadAllLines(customPath, Encoding.UTF8))
+                    foreach (string line in customLines)
                     {
                         CalendarEventItem item = ParsePipeEventLine(line, true);
                         if (item != null) loaded.Add(item);
@@ -8614,53 +8890,100 @@ namespace OpenWidget
             return raw.Replace('|', ' ').Replace(';', ' ').Replace('=', ' ').Replace('\r', ' ').Replace('\n', ' ').Trim();
         }
 
+        private static Dictionary<DateTime, DailyActivityRecord> TryParseTimerActivityFile(string path)
+        {
+            Dictionary<DateTime, DailyActivityRecord> map = new Dictionary<DateTime, DailyActivityRecord>();
+            if (!IsValidTextFile(path)) return map;
+            try
+            {
+                foreach (string line in File.ReadAllLines(path, Encoding.UTF8))
+                {
+                    if (string.IsNullOrWhiteSpace(line)) continue;
+                    string[] p = line.Split('|');
+                    DateTime dt;
+                    int st, gm, pc;
+                    if (p.Length >= 4 &&
+                        DateTime.TryParseExact(p[0].Trim(), "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out dt) &&
+                        int.TryParse(p[1], out st) &&
+                        int.TryParse(p[2], out gm) &&
+                        int.TryParse(p[3], out pc))
+                    {
+                        DailyActivityRecord rec = new DailyActivityRecord
+                        {
+                            Date = dt.Date,
+                            StudySeconds = Math.Max(0, st),
+                            GameSeconds = Math.Max(0, gm),
+                            PcSeconds = Math.Max(0, pc)
+                        };
+                        if (p.Length >= 5 && !string.IsNullOrWhiteSpace(p[4]))
+                        {
+                            string[] entries = p[4].Split(new char[] { ';' }, StringSplitOptions.RemoveEmptyEntries);
+                            for (int ei = 0; ei < entries.Length; ei++)
+                            {
+                                int eq = entries[ei].LastIndexOf('=');
+                                if (eq > 0 && eq < entries[ei].Length - 1)
+                                {
+                                    string gName = entries[ei].Substring(0, eq).Trim();
+                                    int gSec;
+                                    if (!string.IsNullOrEmpty(gName) && int.TryParse(entries[ei].Substring(eq + 1), out gSec) && gSec > 0)
+                                    {
+                                        int prevSec;
+                                        rec.GameBreakdown.TryGetValue(gName, out prevSec);
+                                        rec.GameBreakdown[gName] = prevSec + gSec;
+                                    }
+                                }
+                            }
+                        }
+                        map[dt.Date] = rec;
+                    }
+                }
+            }
+            catch { }
+            return map;
+        }
+
         private void LoadTimerActivityData()
         {
             try
             {
                 activityDataFilePath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "timer_activity.dat");
                 activityByDate.Clear();
-                if (File.Exists(activityDataFilePath))
+                lastSavedActivityPayload = null;
+
+                Dictionary<DateTime, DailyActivityRecord> primary = TryParseTimerActivityFile(activityDataFilePath);
+                Dictionary<DateTime, DailyActivityRecord> backup = TryParseTimerActivityFile(activityDataFilePath + ".bak");
+                Dictionary<DateTime, DailyActivityRecord> temp = TryParseTimerActivityFile(activityDataFilePath + ".tmp");
+
+                bool needsRepairSave = false;
+                DateTime cutoff = DateTime.Today.AddDays(-400);
+
+                // Start from primary if valid; otherwise pick the richer recovery source (.bak or .tmp)
+                if (primary.Count > 0)
                 {
-                    foreach (string line in File.ReadAllLines(activityDataFilePath, Encoding.UTF8))
+                    foreach (var kv in primary) activityByDate[kv.Key] = kv.Value;
+                }
+                else if (backup.Count >= temp.Count && backup.Count > 0)
+                {
+                    foreach (var kv in backup) activityByDate[kv.Key] = kv.Value;
+                    needsRepairSave = true;
+                }
+                else if (temp.Count > 0)
+                {
+                    foreach (var kv in temp) activityByDate[kv.Key] = kv.Value;
+                    needsRepairSave = true;
+                }
+
+                // Merge any missing historical days from .bak / .tmp so a power-loss reset can never wipe history
+                Dictionary<DateTime, DailyActivityRecord>[] fallbacks = new Dictionary<DateTime, DailyActivityRecord>[] { backup, temp };
+                for (int fi = 0; fi < fallbacks.Length; fi++)
+                {
+                    foreach (var kv in fallbacks[fi])
                     {
-                        if (string.IsNullOrWhiteSpace(line)) continue;
-                        string[] p = line.Split('|');
-                        DateTime dt;
-                        int st, gm, pc;
-                        if (p.Length >= 4 &&
-                            DateTime.TryParseExact(p[0].Trim(), "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out dt) &&
-                            int.TryParse(p[1], out st) &&
-                            int.TryParse(p[2], out gm) &&
-                            int.TryParse(p[3], out pc))
+                        if (kv.Key < cutoff) continue;
+                        if (!activityByDate.ContainsKey(kv.Key))
                         {
-                            DailyActivityRecord rec = new DailyActivityRecord
-                            {
-                                Date = dt.Date,
-                                StudySeconds = Math.Max(0, st),
-                                GameSeconds = Math.Max(0, gm),
-                                PcSeconds = Math.Max(0, pc)
-                            };
-                            if (p.Length >= 5 && !string.IsNullOrWhiteSpace(p[4]))
-                            {
-                                string[] entries = p[4].Split(new char[] { ';' }, StringSplitOptions.RemoveEmptyEntries);
-                                for (int ei = 0; ei < entries.Length; ei++)
-                                {
-                                    int eq = entries[ei].LastIndexOf('=');
-                                    if (eq > 0 && eq < entries[ei].Length - 1)
-                                    {
-                                        string gName = entries[ei].Substring(0, eq).Trim();
-                                        int gSec;
-                                        if (!string.IsNullOrEmpty(gName) && int.TryParse(entries[ei].Substring(eq + 1), out gSec) && gSec > 0)
-                                        {
-                                            int prevSec;
-                                            rec.GameBreakdown.TryGetValue(gName, out prevSec);
-                                            rec.GameBreakdown[gName] = prevSec + gSec;
-                                        }
-                                    }
-                                }
-                            }
-                            activityByDate[dt.Date] = rec;
+                            activityByDate[kv.Key] = kv.Value;
+                            needsRepairSave = true;
                         }
                     }
                 }
@@ -8673,6 +8996,11 @@ namespace OpenWidget
                     {
                         todayRec.PcSeconds = (int)Math.Max(0, Math.Min(86400, bootSec));
                     }
+                }
+
+                if (needsRepairSave && activityByDate.Count > 0)
+                {
+                    SaveTimerActivityData();
                 }
             }
             catch { }
@@ -8725,7 +9053,15 @@ namespace OpenWidget
                     }
                     sb.AppendLine();
                 }
-                File.WriteAllText(activityDataFilePath, sb.ToString(), new UTF8Encoding(false));
+
+                string payload = sb.ToString();
+                // Never overwrite a valid history file with an empty payload
+                if (string.IsNullOrWhiteSpace(payload)) return;
+                // Skip redundant disk flush when nothing changed since last save
+                if (string.Equals(payload, lastSavedActivityPayload, StringComparison.Ordinal)) return;
+
+                WriteAllTextAtomic(activityDataFilePath, payload, new UTF8Encoding(false));
+                lastSavedActivityPayload = payload;
             }
             catch { }
         }
