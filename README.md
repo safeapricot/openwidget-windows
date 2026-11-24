@@ -2,7 +2,7 @@
 
 > **Not:** Bu dal (`personal`), [OpenWidget](https://github.com/safeapricot/openwidget-windows) projesinin yerel ağdaki akıllı ev cihazları (Matter / WiZ ampul) ve özel donanım profilleri için özelleştirilmiş **Personal Edition** sürümünü içerir. Genel kullanıma uygun, çok dilli (TR/EN) ve otomatik donanım algılamalı sürüm için [`main` dalına](https://github.com/safeapricot/openwidget-windows/tree/main) göz atabilirsiniz.
 
-**OpenWidget Personal**, Windows masaüstü için geliştirilmiş; sıfır harici DLL/çalışma zamanı bağımlılığına sahip (`~210 KB` tek `.exe`), hafif (`~9 MB RAM`), **2K / 4K High-DPI** uyumlu, yerel (native) bir **C# / WPF cam (frosted-glass) masaüstü widget ve kontrol panelidir**.
+**OpenWidget Personal**, Windows masaüstü için geliştirilmiş; sıfır harici DLL/çalışma zamanı bağımlılığına sahip (`~210 KB` tek `.exe`), hafif, yerel bir **C# / WPF cam masaüstü widget ve kontrol panelidir**.
 
 Hava durumu, canlı donanım telemetrisi, yerel ağ üzerinden **Matter / WiZ akıllı ampul** kontrolü (2D RGB renk spektrumu dahil), **HDR/SDR & DDC/CI monitör parlaklığı kontrolü**, **kablosuz ekipman batarya takibi**, **sürükle-bırak modül düzenleyici**, **pano geçmişi** ve sistem tepsisinden **tek tıkla mikrofon susturma** özelliklerini tek bir modern arayüzde birleştirir.
 
