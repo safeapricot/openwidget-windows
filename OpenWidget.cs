@@ -1036,6 +1036,11 @@ namespace OpenWidget
         private int pomoRemainingSeconds = 25 * 60;
         private int timerGameSessionSeconds = 0;
         private int timerSaveTickCounter = 0;
+        private bool syncActivityToSite = true;
+        private int timerCloudSyncTickCounter = 885;
+        private int cloudActivitySyncBusy = 0;
+        private string lastCloudSyncedSignature = null;
+        private string cachedGithubSyncToken = null;
         private DateTime activeTrackingDate = DateTime.Today;
         private string activityDataFilePath;
         private string lastSavedActivityPayload = null;
@@ -1557,6 +1562,10 @@ namespace OpenWidget
                             {
                                 notifyLowBattery = (v == "1" || v.Equals("true", StringComparison.OrdinalIgnoreCase));
                             }
+                            else if (k == "SyncActivityToSite")
+                            {
+                                syncActivityToSite = (v == "1" || v.Equals("true", StringComparison.OrdinalIgnoreCase));
+                            }
                             else if (k == "TimerStudyColor" && v.StartsWith("#") && (v.Length == 7 || v.Length == 9))
                             {
                                 timerStudyColorHex = v;
@@ -1620,6 +1629,7 @@ namespace OpenWidget
                 sb.AppendLine("PomoBreakMin=" + pomoBreakMinutes);
                 sb.AppendLine("ShowTaskbarDevices=" + (showTaskbarDevices ? "1" : "0"));
                 sb.AppendLine("NotifyLowBattery=" + (notifyLowBattery ? "1" : "0"));
+                sb.AppendLine("SyncActivityToSite=" + (syncActivityToSite ? "1" : "0"));
                 sb.AppendLine("TimerStudyColor=" + timerStudyColorHex);
                 sb.AppendLine("TimerGameColor=" + timerGameColorHex);
                 WriteAllTextAtomic(settingsFilePath, sb.ToString(), new UTF8Encoding(false));
@@ -4556,6 +4566,84 @@ namespace OpenWidget
             lowBatTop.Children.Add(btnToggleLowBat);
             lowBatCard.Child = lowBatTop;
             tabPanels[1].Children.Add(lowBatCard);
+
+            // safeapricot.com Live Activity Heatmap Sync Card
+            Border siteSyncCard = new Border
+            {
+                CornerRadius = new CornerRadius(11),
+                Background = HexBrush(syncActivityToSite ? "#2C221C" : "#221C18"),
+                BorderBrush = HexBrush(syncActivityToSite ? accentColorHex : "#3B302A"),
+                BorderThickness = new Thickness(1.2),
+                Padding = new Thickness(13, 11, 13, 11),
+                Margin = new Thickness(0, 0, 0, 10)
+            };
+            Grid siteSyncTop = new Grid();
+            siteSyncTop.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            siteSyncTop.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            StackPanel siteSyncInfo = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0) };
+            siteSyncInfo.Children.Add(new TextBlock
+            {
+                Text = "☁ safeapricot.com Aktivite Senkronizasyonu",
+                Foreground = HexBrush("#FAF6F2"),
+                FontSize = 12,
+                FontWeight = FontWeights.Bold,
+                TextWrapping = TextWrapping.Wrap
+            });
+            siteSyncInfo.Children.Add(new TextBlock
+            {
+                Text = "Timer aktivite verilerini 15 dakikada bir (sadece değiştiğinde) sitendeki heatmap akışına otomatik gönderir",
+                Foreground = HexBrush("#9E8E82"),
+                FontSize = 10.5,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 2, 0, 0)
+            });
+            Grid.SetColumn(siteSyncInfo, 0);
+            siteSyncTop.Children.Add(siteSyncInfo);
+
+            StackPanel siteSyncBtns = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            Button btnSyncNow = CreateStyledIconButton("#1D1815", "#3E322B", "Aktivite verisini hemen safeapricot.com'a gönder");
+            btnSyncNow.Padding = new Thickness(9, 5, 9, 5);
+            btnSyncNow.Margin = new Thickness(0, 0, 6, 0);
+            btnSyncNow.Content = new TextBlock { Text = "↻ Gönder", Foreground = HexBrush("#E8DFD7"), FontSize = 10.5, FontWeight = FontWeights.SemiBold };
+            btnSyncNow.Click += (s, e) =>
+            {
+                ShowToast("☁ Aktivite verisi gönderiliyor...");
+                Task.Run(() => SyncTimerActivityToSiteAsync(true, true));
+            };
+            siteSyncBtns.Children.Add(btnSyncNow);
+
+            Button btnToggleSiteSync = CreateStyledIconButton(
+                syncActivityToSite ? "#38281E" : "#1D1815",
+                syncActivityToSite ? accentColorHex : "#3E322B",
+                "Otomatik site senkronizasyonunu aç veya kapat");
+            btnToggleSiteSync.Padding = new Thickness(11, 5, 11, 5);
+            btnToggleSiteSync.MinWidth = 68;
+            TextBlock txtToggleSiteSync = new TextBlock
+            {
+                Text = syncActivityToSite ? "✓ Açık" : "Kapalı",
+                Foreground = HexBrush(syncActivityToSite ? "#FAF6F2" : "#8E7F74"),
+                FontSize = 11,
+                FontWeight = FontWeights.Bold
+            };
+            btnToggleSiteSync.Content = txtToggleSiteSync;
+            btnToggleSiteSync.Click += (s, e) =>
+            {
+                syncActivityToSite = !syncActivityToSite;
+                SaveSettings();
+                siteSyncCard.Background = HexBrush(syncActivityToSite ? "#2C221C" : "#221C18");
+                siteSyncCard.BorderBrush = HexBrush(syncActivityToSite ? accentColorHex : "#3B302A");
+                btnToggleSiteSync.Background = HexBrush(syncActivityToSite ? "#38281E" : "#1D1815");
+                btnToggleSiteSync.BorderBrush = HexBrush(syncActivityToSite ? accentColorHex : "#3E322B");
+                txtToggleSiteSync.Text = syncActivityToSite ? "✓ Açık" : "Kapalı";
+                txtToggleSiteSync.Foreground = HexBrush(syncActivityToSite ? "#FAF6F2" : "#8E7F74");
+                if (syncActivityToSite) Task.Run(() => SyncTimerActivityToSiteAsync(false, false));
+            };
+            siteSyncBtns.Children.Add(btnToggleSiteSync);
+            Grid.SetColumn(siteSyncBtns, 1);
+            siteSyncTop.Children.Add(siteSyncBtns);
+            siteSyncCard.Child = siteSyncTop;
+            tabPanels[1].Children.Add(siteSyncCard);
 
             // =========================================================
             // TAB 2: MODULE ORDER, VISIBILITY & TELEMETRY SUB-TOGGLES
@@ -9066,6 +9154,259 @@ namespace OpenWidget
             catch { }
         }
 
+        private static string JsonEscape(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return "";
+            StringBuilder sb = new StringBuilder(s.Length + 8);
+            for (int i = 0; i < s.Length; i++)
+            {
+                char ch = s[i];
+                if (ch == '\\') sb.Append("\\\\");
+                else if (ch == '"') sb.Append("\\\"");
+                else if (ch == '\r') sb.Append("\\r");
+                else if (ch == '\n') sb.Append("\\n");
+                else if (ch == '\t') sb.Append("\\t");
+                else if (ch < 32) sb.AppendFormat("\\u{0:x4}", (int)ch);
+                else sb.Append(ch);
+            }
+            return sb.ToString();
+        }
+
+        private string ReadGithubSyncToken(bool forceRefresh)
+        {
+            if (!forceRefresh && !string.IsNullOrEmpty(cachedGithubSyncToken)) return cachedGithubSyncToken;
+            try
+            {
+                ProcessStartInfo psi = new ProcessStartInfo
+                {
+                    FileName = "git",
+                    Arguments = "credential fill",
+                    UseShellExecute = false,
+                    RedirectStandardInput = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true
+                };
+                using (Process proc = Process.Start(psi))
+                {
+                    if (proc == null) return null;
+                    proc.StandardInput.Write("protocol=https\nhost=github.com\n\n");
+                    proc.StandardInput.Close();
+                    string output = proc.StandardOutput.ReadToEnd();
+                    proc.WaitForExit(3000);
+                    foreach (string line in output.Split(new char[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+                    {
+                        if (line.StartsWith("password=", StringComparison.Ordinal))
+                        {
+                            string tok = line.Substring(9).Trim();
+                            if (!string.IsNullOrEmpty(tok))
+                            {
+                                cachedGithubSyncToken = tok;
+                                return tok;
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+            return null;
+        }
+
+        private string BuildActivityCloudJson(out string dataSignature)
+        {
+            List<DailyActivityRecord> snapshot = new List<DailyActivityRecord>();
+            string accentSnap = accentColorHex, studySnap = timerStudyColorHex, gameSnap = timerGameColorHex;
+            try
+            {
+                Dispatcher.Invoke(() =>
+                {
+                    accentSnap = accentColorHex;
+                    studySnap = timerStudyColorHex;
+                    gameSnap = timerGameColorHex;
+                    foreach (DailyActivityRecord r in activityByDate.Values)
+                    {
+                        DailyActivityRecord copy = new DailyActivityRecord
+                        {
+                            Date = r.Date,
+                            StudySeconds = r.StudySeconds,
+                            GameSeconds = r.GameSeconds,
+                            PcSeconds = r.PcSeconds
+                        };
+                        if (r.GameBreakdown != null)
+                        {
+                            foreach (var kv in r.GameBreakdown) copy.GameBreakdown[kv.Key] = kv.Value;
+                        }
+                        snapshot.Add(copy);
+                    }
+                });
+            }
+            catch
+            {
+                dataSignature = null;
+                return null;
+            }
+
+            snapshot.Sort((a, b) => a.Date.CompareTo(b.Date));
+            DateTime cutoff = DateTime.Today.AddDays(-370);
+
+            StringBuilder bodySb = new StringBuilder(snapshot.Count * 80 + 128);
+            bodySb.Append("\"colors\":{");
+            bodySb.Append("\"accent\":\"").Append(JsonEscape(accentSnap)).Append("\",");
+            bodySb.Append("\"study\":\"").Append(JsonEscape(studySnap)).Append("\",");
+            bodySb.Append("\"game\":\"").Append(JsonEscape(gameSnap)).Append("\"},");
+            bodySb.Append("\"days\":{");
+
+            bool firstDay = true;
+            for (int i = 0; i < snapshot.Count; i++)
+            {
+                DailyActivityRecord r = snapshot[i];
+                if (r.Date < cutoff) continue;
+                if (r.StudySeconds == 0 && r.GameSeconds == 0 && r.PcSeconds == 0) continue;
+                if (!firstDay) bodySb.Append(',');
+                firstDay = false;
+                bodySb.Append('"').Append(r.Date.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)).Append("\":{");
+                bodySb.Append("\"study\":").Append(r.StudySeconds)
+                      .Append(",\"game\":").Append(r.GameSeconds)
+                      .Append(",\"pc\":").Append(r.PcSeconds);
+                if (r.GameBreakdown != null && r.GameBreakdown.Count > 0)
+                {
+                    List<KeyValuePair<string, int>> games = new List<KeyValuePair<string, int>>(r.GameBreakdown);
+                    games.Sort((a, b) => string.CompareOrdinal(a.Key, b.Key));
+                    StringBuilder gSb = new StringBuilder();
+                    bool firstG = true;
+                    for (int gi = 0; gi < games.Count; gi++)
+                    {
+                        if (games[gi].Value <= 0) continue;
+                        if (!firstG) gSb.Append(',');
+                        firstG = false;
+                        gSb.Append('"').Append(JsonEscape(games[gi].Key)).Append("\":").Append(games[gi].Value);
+                    }
+                    if (!firstG)
+                    {
+                        bodySb.Append(",\"games\":{").Append(gSb.ToString()).Append('}');
+                    }
+                }
+                bodySb.Append('}');
+            }
+            bodySb.Append('}');
+
+            dataSignature = bodySb.ToString();
+            if (firstDay) return null; // never publish empty history
+
+            string updatedIso = DateTimeOffset.Now.ToString("yyyy-MM-ddTHH:mm:sszzz", System.Globalization.CultureInfo.InvariantCulture);
+            return "{\"version\":1,\"updatedAt\":\"" + updatedIso + "\"," + dataSignature + "}\n";
+        }
+
+        private void SyncTimerActivityToSiteAsync(bool force, bool showToastResult)
+        {
+            if (!force && !syncActivityToSite) return;
+            if (Interlocked.CompareExchange(ref cloudActivitySyncBusy, 1, 0) != 0) return;
+            try
+            {
+                string dataSig;
+                string json = BuildActivityCloudJson(out dataSig);
+                if (string.IsNullOrEmpty(json) || string.IsNullOrEmpty(dataSig)) return;
+                if (!force && string.Equals(dataSig, lastCloudSyncedSignature, StringComparison.Ordinal)) return;
+
+                string token = ReadGithubSyncToken(false);
+                if (string.IsNullOrEmpty(token))
+                {
+                    if (showToastResult) Dispatcher.BeginInvoke(new Action(() => ShowToast("⚠ GitHub kimliği bulunamadı")));
+                    return;
+                }
+
+                ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
+                const string contentsApi = "https://api.github.com/repos/safeapricot/safeapricot.github.io/contents/activity.json";
+
+                for (int attempt = 0; attempt < 2; attempt++)
+                {
+                    try
+                    {
+                        string existingSha = null;
+                        HttpWebRequest getReq = (HttpWebRequest)WebRequest.Create(contentsApi + "?ref=activity-data");
+                        getReq.Method = "GET";
+                        getReq.Timeout = 8000;
+                        getReq.UserAgent = "OpenWidget-Sync";
+                        getReq.Accept = "application/vnd.github+json";
+                        getReq.Headers["Authorization"] = "token " + token;
+                        try
+                        {
+                            using (HttpWebResponse getResp = (HttpWebResponse)getReq.GetResponse())
+                            using (StreamReader sr = new StreamReader(getResp.GetResponseStream(), Encoding.UTF8))
+                            {
+                                string body = sr.ReadToEnd();
+                                Match m = Regex.Match(body, "\"sha\"\\s*:\\s*\"([0-9a-fA-F]{40})\"");
+                                if (m.Success) existingSha = m.Groups[1].Value;
+                            }
+                        }
+                        catch (WebException wex)
+                        {
+                            HttpWebResponse er = wex.Response as HttpWebResponse;
+                            if (er != null && (int)er.StatusCode == 401 && attempt == 0)
+                            {
+                                token = ReadGithubSyncToken(true);
+                                if (!string.IsNullOrEmpty(token)) continue;
+                            }
+                            if (er == null || (int)er.StatusCode != 404) throw;
+                        }
+
+                        string b64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(json));
+                        StringBuilder putSb = new StringBuilder(b64.Length + 256);
+                        putSb.Append("{\"message\":\"sync: update OpenWidget activity data\",\"branch\":\"activity-data\",\"content\":\"")
+                             .Append(b64).Append('"');
+                        if (!string.IsNullOrEmpty(existingSha))
+                            putSb.Append(",\"sha\":\"").Append(existingSha).Append('"');
+                        putSb.Append('}');
+
+                        byte[] putBytes = Encoding.UTF8.GetBytes(putSb.ToString());
+                        HttpWebRequest putReq = (HttpWebRequest)WebRequest.Create(contentsApi);
+                        putReq.Method = "PUT";
+                        putReq.Timeout = 10000;
+                        putReq.UserAgent = "OpenWidget-Sync";
+                        putReq.Accept = "application/vnd.github+json";
+                        putReq.ContentType = "application/json; charset=utf-8";
+                        putReq.Headers["Authorization"] = "token " + token;
+                        putReq.ContentLength = putBytes.Length;
+                        using (Stream reqStream = putReq.GetRequestStream())
+                        {
+                            reqStream.Write(putBytes, 0, putBytes.Length);
+                        }
+                        using (HttpWebResponse putResp = (HttpWebResponse)putReq.GetResponse())
+                        {
+                            if ((int)putResp.StatusCode >= 200 && (int)putResp.StatusCode < 300)
+                            {
+                                lastCloudSyncedSignature = dataSig;
+                                if (showToastResult)
+                                    Dispatcher.BeginInvoke(new Action(() => ShowToast("✓ Aktivite safeapricot.com'a senkronize edildi")));
+                                return;
+                            }
+                        }
+                    }
+                    catch (WebException wex)
+                    {
+                        HttpWebResponse er = wex.Response as HttpWebResponse;
+                        if (er != null && (int)er.StatusCode == 401 && attempt == 0)
+                        {
+                            token = ReadGithubSyncToken(true);
+                            if (!string.IsNullOrEmpty(token)) continue;
+                        }
+                        if (showToastResult)
+                            Dispatcher.BeginInvoke(new Action(() => ShowToast("⚠ Senkronizasyon başarısız")));
+                        return;
+                    }
+                }
+            }
+            catch
+            {
+                if (showToastResult)
+                    Dispatcher.BeginInvoke(new Action(() => ShowToast("⚠ Senkronizasyon başarısız")));
+            }
+            finally
+            {
+                Interlocked.Exchange(ref cloudActivitySyncBusy, 0);
+            }
+        }
+
         private void InitializeTimerWidget()
         {
             if (timerWindow != null) return;
@@ -10421,6 +10762,16 @@ namespace OpenWidget
                 SaveTimerActivityData();
             }
 
+            if (syncActivityToSite)
+            {
+                timerCloudSyncTickCounter++;
+                if (timerCloudSyncTickCounter >= 900)
+                {
+                    timerCloudSyncTickCounter = 0;
+                    Task.Run(() => SyncTimerActivityToSiteAsync(false, false));
+                }
+            }
+
             bool anyTimerRunning = (timerCurrentMode == 0 && defaultTimerIsRunning) ||
                 (timerCurrentMode == 1 && gameTimerIsRunning) ||
                 (timerCurrentMode == 2 && pomoIsRunning);
@@ -10855,6 +11206,7 @@ namespace OpenWidget
                 BuildTimerHeatmapGrid();
                 UpdateTimerWidgetUi();
                 if (refreshTimerDetailedViewAction != null) refreshTimerDetailedViewAction();
+                if (syncActivityToSite) Task.Run(() => SyncTimerActivityToSiteAsync(true, false));
             };
 
             string[] studyPresets = { "#2EA043", "#10B981", "#38BDF8", "#3B82F6", "#E2925C", "#F59E0B", "#EC4899" };
@@ -11569,6 +11921,7 @@ namespace OpenWidget
                     rec.StudySeconds += addSec;
                 }
                 SaveTimerActivityData();
+                if (syncActivityToSite) Task.Run(() => SyncTimerActivityToSiteAsync(true, false));
                 renderSelectedDay();
                 BuildTimerHeatmapGrid();
                 UpdateTimerWidgetUi();
