@@ -108,6 +108,8 @@ namespace OpenWidget
         public string Detail;
         public string PctText;
         public int BarPct;
+        public bool IsCharging;
+        public bool IsAsleep;
     }
 
     // Universal Zero-Bloat Wireless Peripherals Detector & Battery Reader (HID, PnP Bluetooth/BLE, XInput, WinMM)
@@ -193,11 +195,109 @@ namespace OpenWidget
         [DllImport("winmm.dll")]
         public static extern int joyGetPosEx(int uJoyID, ref JOYINFOEX pji);
 
+        [StructLayout(LayoutKind.Sequential)]
+        public struct HIDD_ATTRIBUTES
+        {
+            public int Size;
+            public ushort VendorID;
+            public ushort ProductID;
+            public ushort VersionNumber;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct HIDP_CAPS
+        {
+            public ushort Usage;
+            public ushort UsagePage;
+            public ushort InputReportByteLength;
+            public ushort OutputReportByteLength;
+            public ushort FeatureReportByteLength;
+            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 17)]
+            public ushort[] Reserved;
+            public ushort NumberLinkCollectionNodes;
+            public ushort NumberInputButtonCaps;
+            public ushort NumberInputValueCaps;
+            public ushort NumberInputDataIndices;
+            public ushort NumberOutputButtonCaps;
+            public ushort NumberOutputValueCaps;
+            public ushort NumberOutputDataIndices;
+            public ushort NumberFeatureButtonCaps;
+            public ushort NumberFeatureValueCaps;
+            public ushort NumberFeatureDataIndices;
+        }
+
+        [StructLayout(LayoutKind.Explicit, Size = 72)]
+        public struct HIDP_VALUE_CAPS
+        {
+            [FieldOffset(0)] public ushort UsagePage;
+            [FieldOffset(2)] public byte ReportID;
+            [FieldOffset(3)] public byte IsAlias;
+            [FieldOffset(4)] public ushort BitField;
+            [FieldOffset(6)] public ushort LinkCollection;
+            [FieldOffset(8)] public ushort LinkUsage;
+            [FieldOffset(10)] public ushort LinkUsagePage;
+            [FieldOffset(12)] public byte IsRange;
+            [FieldOffset(13)] public byte IsStringRange;
+            [FieldOffset(14)] public byte IsDesignatorRange;
+            [FieldOffset(15)] public byte IsAbsolute;
+            [FieldOffset(16)] public byte HasNull;
+            [FieldOffset(17)] public byte Reserved;
+            [FieldOffset(18)] public ushort BitSize;
+            [FieldOffset(20)] public ushort ReportCount;
+            [FieldOffset(32)] public uint UnitsExp;
+            [FieldOffset(36)] public uint Units;
+            [FieldOffset(40)] public int LogicalMin;
+            [FieldOffset(44)] public int LogicalMax;
+            [FieldOffset(48)] public int PhysicalMin;
+            [FieldOffset(52)] public int PhysicalMax;
+            [FieldOffset(56)] public ushort UsageMin;
+            [FieldOffset(58)] public ushort UsageMax;
+        }
+
         [DllImport("hid.dll")]
         public static extern void HidD_GetHidGuid(out Guid hidGuid);
 
         [DllImport("hid.dll", CharSet = CharSet.Unicode)]
         public static extern bool HidD_GetProductString(IntPtr HidDeviceObject, StringBuilder Buffer, int BufferLength);
+
+        [DllImport("hid.dll")]
+        public static extern bool HidD_GetAttributes(IntPtr HidDeviceObject, ref HIDD_ATTRIBUTES Attributes);
+
+        [DllImport("hid.dll")]
+        public static extern bool HidD_GetPreparsedData(IntPtr HidDeviceObject, out IntPtr PreparsedData);
+
+        [DllImport("hid.dll")]
+        public static extern bool HidD_FreePreparsedData(IntPtr PreparsedData);
+
+        [DllImport("hid.dll")]
+        public static extern int HidP_GetCaps(IntPtr PreparsedData, out HIDP_CAPS Capabilities);
+
+        [DllImport("hid.dll")]
+        public static extern int HidP_GetValueCaps(int ReportType, [Out] HIDP_VALUE_CAPS[] ValueCaps, ref ushort ValueCapsLength, IntPtr PreparsedData);
+
+        [DllImport("hid.dll")]
+        public static extern int HidP_GetUsageValue(int ReportType, ushort UsagePage, ushort LinkCollection, ushort Usage, out uint UsageValue, IntPtr PreparsedData, byte[] Report, uint ReportLength);
+
+        [DllImport("hid.dll")]
+        public static extern uint HidP_MaxUsageListLength(int ReportType, ushort UsagePage, IntPtr PreparsedData);
+
+        [DllImport("hid.dll")]
+        public static extern int HidP_GetUsages(int ReportType, ushort UsagePage, ushort LinkCollection, [Out] ushort[] UsageList, ref uint UsageLength, IntPtr PreparsedData, byte[] Report, uint ReportLength);
+
+        [DllImport("hid.dll", SetLastError = true)]
+        public static extern bool HidD_GetFeature(IntPtr HidDeviceObject, [Out] byte[] ReportBuffer, uint ReportBufferLength);
+
+        [DllImport("hid.dll", SetLastError = true)]
+        public static extern bool HidD_SetFeature(IntPtr HidDeviceObject, byte[] ReportBuffer, uint ReportBufferLength);
+
+        [DllImport("hid.dll", SetLastError = true)]
+        public static extern bool HidD_GetInputReport(IntPtr HidDeviceObject, [Out] byte[] ReportBuffer, uint ReportBufferLength);
+
+        [DllImport("hid.dll", SetLastError = true)]
+        public static extern bool HidD_FlushQueue(IntPtr HidDeviceObject);
+
+        [DllImport("kernel32.dll")]
+        public static extern bool ResetEvent(IntPtr hEvent);
 
         [DllImport("setupapi.dll", SetLastError = true)]
         public static extern IntPtr SetupDiGetClassDevs(ref Guid ClassGuid, IntPtr Enumerator, IntPtr hwndParent, int Flags);
@@ -210,6 +310,9 @@ namespace OpenWidget
 
         [DllImport("setupapi.dll", CharSet = CharSet.Auto, SetLastError = true)]
         public static extern bool SetupDiGetDeviceInterfaceDetail(IntPtr DeviceInfoSet, ref SP_DEVICE_INTERFACE_DATA DeviceInterfaceData, IntPtr DeviceInterfaceDetailData, int DeviceInterfaceDetailDataSize, out int RequiredSize, IntPtr DeviceInfoData);
+
+        [DllImport("setupapi.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        public static extern bool SetupDiGetDeviceInterfaceDetail(IntPtr DeviceInfoSet, ref SP_DEVICE_INTERFACE_DATA DeviceInterfaceData, IntPtr DeviceInterfaceDetailData, int DeviceInterfaceDetailDataSize, out int RequiredSize, ref SP_DEVINFO_DATA DeviceInfoData);
 
         [DllImport("setupapi.dll", SetLastError = true)]
         public static extern bool SetupDiEnumDeviceInfo(IntPtr DeviceInfoSet, uint MemberIndex, ref SP_DEVINFO_DATA DeviceInfoData);
@@ -528,6 +631,21 @@ namespace OpenWidget
             catch { }
         }
 
+        private class HidCollectionInfo
+        {
+            public string Path;
+            public ushort Vid;
+            public ushort Pid;
+            public ushort UsagePage;
+            public ushort Usage;
+            public ushort InLen;
+            public ushort OutLen;
+            public ushort FeatLen;
+            public ushort NumInputValueCaps;
+            public ushort NumFeatureValueCaps;
+            public Guid ContainerId;
+        }
+
         private class PnpBatteryCandidate
         {
             public string RawName;
@@ -537,10 +655,1229 @@ namespace OpenWidget
             public string HardwareIds;
             public Guid ContainerId;
             public int Pct;
-            public bool? IsConnected;
-            public bool? IsPresent;
-            public bool CmStarted;
-            public uint CmProblem;
+            public bool IsConnected;
+        }
+
+        private static bool OverlappedHidWriteOnly(IntPtr hFile, byte[] tx, int timeoutMs)
+        {
+            if (hFile == IntPtr.Zero || hFile == new IntPtr(-1) || tx == null || tx.Length == 0) return false;
+            IntPtr evW = CreateEvent(IntPtr.Zero, true, false, null);
+            int ovSize = Marshal.SizeOf(typeof(NativeOverlapped));
+            IntPtr pOvW = Marshal.AllocHGlobal(ovSize);
+            IntPtr pTx = Marshal.AllocHGlobal(tx.Length);
+            try
+            {
+                Marshal.Copy(tx, 0, pTx, tx.Length);
+                NativeOverlapped ovW = new NativeOverlapped { EventHandle = evW };
+                Marshal.StructureToPtr(ovW, pOvW, false);
+                uint wBytes;
+                if (WriteFile(hFile, pTx, (uint)tx.Length, out wBytes, pOvW)) return true;
+                if (WaitForSingleObject(evW, (uint)Math.Max(50, timeoutMs)) == 0)
+                {
+                    return GetOverlappedResult(hFile, pOvW, out wBytes, false);
+                }
+                CancelIo(hFile);
+                uint dummyW;
+                GetOverlappedResult(hFile, pOvW, out dummyW, true);
+                return false;
+            }
+            catch { return false; }
+            finally
+            {
+                Marshal.FreeHGlobal(pTx);
+                Marshal.FreeHGlobal(pOvW);
+                if (evW != IntPtr.Zero) CloseHandle(evW);
+            }
+        }
+
+        private static int OverlappedHidReadOne(IntPtr hFile, int rxLen, out byte[] rxOut, int timeoutMs, bool stripLeadingZero)
+        {
+            rxOut = null;
+            if (hFile == IntPtr.Zero || hFile == new IntPtr(-1) || rxLen <= 0) return -1;
+            IntPtr evR = CreateEvent(IntPtr.Zero, true, false, null);
+            int ovSize = Marshal.SizeOf(typeof(NativeOverlapped));
+            IntPtr pOvR = Marshal.AllocHGlobal(ovSize);
+            IntPtr pRx = Marshal.AllocHGlobal(rxLen);
+            try
+            {
+                for (int i = 0; i < rxLen; i++) Marshal.WriteByte(pRx, i, 0);
+                NativeOverlapped ovR = new NativeOverlapped { EventHandle = evR };
+                Marshal.StructureToPtr(ovR, pOvR, false);
+                uint rBytes = 0;
+                bool got = false;
+                if (ReadFile(hFile, pRx, (uint)rxLen, out rBytes, pOvR))
+                {
+                    got = rBytes > 0;
+                }
+                else
+                {
+                    uint waitRes = WaitForSingleObject(evR, (uint)Math.Max(1, timeoutMs));
+                    if (waitRes == 0)
+                    {
+                        if (GetOverlappedResult(hFile, pOvR, out rBytes, false)) got = rBytes > 0;
+                    }
+                    else
+                    {
+                        CancelIo(hFile);
+                        uint dummyR;
+                        GetOverlappedResult(hFile, pOvR, out dummyR, true);
+                        return 0;
+                    }
+                }
+                if (got)
+                {
+                    int copyLen = (int)Math.Min(rBytes, (uint)rxLen);
+                    if (copyLen > 0)
+                    {
+                        byte[] buf = new byte[copyLen];
+                        Marshal.Copy(pRx, buf, 0, copyLen);
+                        int offset = (stripLeadingZero && copyLen > 1 && buf[0] == 0x00) ? 1 : 0;
+                        byte[] payload = new byte[copyLen - offset];
+                        Array.Copy(buf, offset, payload, 0, payload.Length);
+                        rxOut = payload;
+                        return payload.Length;
+                    }
+                }
+                return 0;
+            }
+            catch { return -1; }
+            finally
+            {
+                Marshal.FreeHGlobal(pRx);
+                Marshal.FreeHGlobal(pOvR);
+                if (evR != IntPtr.Zero) CloseHandle(evR);
+            }
+        }
+
+        private static int InterpolateBatteryCurve(int mv, int[] v, int[] p)
+        {
+            if (v == null || p == null || v.Length == 0 || v.Length != p.Length) return 0;
+            if (mv >= v[0]) return p[0];
+            int last = v.Length - 1;
+            if (mv <= v[last]) return p[last];
+            for (int i = 0; i < last; i++)
+            {
+                if (mv <= v[i] && mv >= v[i + 1])
+                {
+                    int span = v[i] - v[i + 1];
+                    if (span <= 0) return p[i];
+                    double ratio = (double)(mv - v[i + 1]) / span;
+                    return Math.Max(0, Math.Min(100, (int)Math.Round(p[i + 1] + ratio * (p[i] - p[i + 1]))));
+                }
+            }
+            return p[last];
+        }
+
+        private static int LogitechLiIonPercent(int mv)
+        {
+            int[] v = { 4186, 4067, 3989, 3922, 3859, 3811, 3778, 3751, 3717, 3671, 3646, 3579, 3500 };
+            int[] p = { 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 5, 2, 0 };
+            return InterpolateBatteryCurve(mv, v, p);
+        }
+
+        private static int LogitechHeadsetPercent(ushort pid, int mv)
+        {
+            int[] g533v = { 4200, 3850, 3790, 3750, 3680, 3330 }, g533p = { 100, 50, 30, 20, 5, 0 };
+            int[] g535v = { 4175, 3817, 3766, 3730, 3664, 3310 }, g535p = { 100, 50, 30, 20, 5, 0 };
+            int[] g633v = { 4100, 3950, 3850, 3750, 3650, 3500, 3300, 3150 }, g633p = { 100, 80, 60, 40, 20, 10, 5, 0 };
+            int[] g733v = { 4175, 4127, 4086, 4054, 4001, 3968, 3944, 3914, 3875, 3840, 3818, 3800, 3783, 3771, 3759, 3744, 3725, 3695, 3675, 3630, 3341 };
+            int[] g733p = { 100, 95, 90, 85, 80, 75, 70, 65, 60, 55, 50, 45, 40, 35, 30, 25, 20, 15, 10, 5, 0 };
+            int[] gprov = { 4150, 3830, 3780, 3740, 3670, 3320 }, gprop = { 100, 50, 30, 20, 5, 0 };
+            int[] proxv = { 4102, 4046, 3993, 3950, 3915, 3877, 3838, 3809, 3789, 3772, 3758, 3747, 3736, 3722, 3707, 3687, 3661, 3644, 3548, 3426, 3293 };
+            int[] proxp = { 100, 95, 90, 85, 80, 75, 70, 65, 60, 55, 50, 45, 40, 35, 30, 25, 20, 15, 10, 5, 0 };
+            int[] defv = { 4100, 3850, 3780, 3730, 3650, 3300 }, defp = { 100, 50, 30, 20, 5, 0 };
+            switch (pid)
+            {
+                case 0x0A66: return InterpolateBatteryCurve(mv, g533v, g533p);
+                case 0x0AC4: return InterpolateBatteryCurve(mv, g535v, g535p);
+                case 0x0A5C: case 0x0A89: case 0x0A5B: case 0x0A87: case 0x0AFE: return InterpolateBatteryCurve(mv, g633v, g633p);
+                case 0x0AB5: return InterpolateBatteryCurve(mv, g733v, g733p);
+                case 0x0AAA: case 0x0ABA: return InterpolateBatteryCurve(mv, proxv, proxp);
+                case 0x0AA7: case 0x0AFB: return InterpolateBatteryCurve(mv, gprov, gprop);
+                default: return InterpolateBatteryCurve(mv, defv, defp);
+            }
+        }
+
+        private static string GetHidPhysicalKey(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return "";
+            string p = path.ToLowerInvariant();
+            int a = p.IndexOf('#');
+            int b = a < 0 ? -1 : p.IndexOf('#', a + 1);
+            int e = b < 0 ? -1 : p.IndexOf('#', b + 1);
+            if (e < 0) return "";
+            string hw = p.Substring(a + 1, b - a - 1);
+            string inst = p.Substring(b + 1, e - b - 1);
+            int col = hw.IndexOf("&col", StringComparison.Ordinal);
+            if (col >= 0 && col + 6 <= hw.Length) hw = hw.Remove(col, 6);
+            int amp = inst.LastIndexOf('&');
+            if (amp >= 0) inst = inst.Substring(0, amp);
+            return hw + "#" + inst;
+        }
+
+        private static int HidppRequest(IntPtr hShort, IntPtr hLong, byte idx, byte b2, byte b3, byte[] prms, out byte[] replyParams, out byte err, bool forceShort, int timeoutMs)
+        {
+            replyParams = null;
+            err = 0;
+            bool hasLong = hLong != IntPtr.Zero && hLong != new IntPtr(-1);
+            bool hasShort = hShort != IntPtr.Zero && hShort != new IntPtr(-1);
+            bool useLong = hasLong && !forceShort;
+            if (!useLong && !hasShort) return -1;
+
+            byte[] msg = new byte[useLong ? 20 : 7];
+            msg[0] = (byte)(useLong ? 0x11 : 0x10);
+            msg[1] = idx;
+            msg[2] = b2;
+            msg[3] = b3;
+            if (prms != null)
+            {
+                for (int i = 0; i < prms.Length && (4 + i) < msg.Length; i++) msg[4 + i] = prms[i];
+            }
+
+            if (hasLong) HidD_FlushQueue(hLong);
+            if (hasShort) HidD_FlushQueue(hShort);
+            if (!OverlappedHidWriteOnly(useLong ? hLong : hShort, msg, 120)) return -1;
+
+            Stopwatch sw = Stopwatch.StartNew();
+            IntPtr[] handles = new IntPtr[] { hLong, hShort };
+            int[] rxLens = new int[] { 20, 7 };
+            while (sw.ElapsedMilliseconds < timeoutMs)
+            {
+                for (int hi = 0; hi < 2; hi++)
+                {
+                    IntPtr h = handles[hi];
+                    if (h == IntPtr.Zero || h == new IntPtr(-1)) continue;
+                    while (sw.ElapsedMilliseconds < timeoutMs)
+                    {
+                        int left = Math.Min(20, Math.Max(5, (int)(timeoutMs - sw.ElapsedMilliseconds)));
+                        byte[] r;
+                        int n = OverlappedHidReadOne(h, rxLens[hi], out r, left, false);
+                        if (n < 7 || r == null) break;
+                        if ((r[0] != 0x10 && r[0] != 0x11) || r[1] != idx) continue;
+                        if (r[2] == b2 && r[3] == b3)
+                        {
+                            replyParams = new byte[r.Length - 4];
+                            Array.Copy(r, 4, replyParams, 0, replyParams.Length);
+                            return 1;
+                        }
+                        if ((r[2] == 0xFF || r[2] == 0x8F) && r[3] == b2 && r[4] == b3)
+                        {
+                            err = r.Length > 5 ? r[5] : (byte)0;
+                            return 0;
+                        }
+                    }
+                }
+            }
+            return -1;
+        }
+
+        private static bool HidppCall20(IntPtr hShort, IntPtr hLong, byte idx, byte feature, byte fn, byte[] prms, out byte[] replyParams)
+        {
+            byte err;
+            return HidppRequest(hShort, hLong, idx, feature, (byte)((fn << 4) | 0x0D), prms, out replyParams, out err, false, 450) == 1 && replyParams != null;
+        }
+
+        private static byte HidppFeatureIndex(IntPtr hShort, IntPtr hLong, byte idx, ushort featureId)
+        {
+            byte[] p;
+            if (HidppCall20(hShort, hLong, idx, 0x00, 0, new byte[] { (byte)(featureId >> 8), (byte)(featureId & 0xFF) }, out p) && p.Length > 0)
+                return p[0];
+            return 0;
+        }
+
+        private static void PollLogitechHidpp(
+            List<HidCollectionInfo> colls,
+            bool isEn,
+            HashSet<uint> claimedVidPids,
+            Action<ushort, ushort, Guid> claimDev,
+            Dictionary<string, int> lastKnownPcts,
+            HashSet<string> addedNames,
+            List<WirelessDeviceReading> results)
+        {
+            Dictionary<ushort, List<HidCollectionInfo>> byPid = new Dictionary<ushort, List<HidCollectionInfo>>();
+            foreach (HidCollectionInfo c in colls)
+            {
+                if (c.Vid != 0x046D) continue;
+                List<HidCollectionInfo> list;
+                if (!byPid.TryGetValue(c.Pid, out list)) { list = new List<HidCollectionInfo>(); byPid[c.Pid] = list; }
+                list.Add(c);
+            }
+
+            HashSet<string> seenUnitIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var kv in byPid)
+            {
+                ushort pid = kv.Key;
+                uint vpk = ((uint)0x046D << 16) | pid;
+                if (claimedVidPids.Contains(vpk)) continue;
+
+                bool passthrough = (pid == 0xC54F); // PRO X3 SUPERSTRIKE passthrough dongle
+                List<HidCollectionInfo> allShorts = new List<HidCollectionInfo>();
+                List<HidCollectionInfo> allLongs = new List<HidCollectionInfo>();
+                foreach (HidCollectionInfo c in kv.Value)
+                {
+                    if (c.OutLen == 7 && ((c.UsagePage == 0xFF00 && c.Usage == 0x0001) || (passthrough && c.UsagePage == 0xFF43 && c.Usage == 0x0301)))
+                        allShorts.Add(c);
+                    else if (c.OutLen == 20 && ((c.UsagePage == 0xFF00 && c.Usage == 0x0002) || (c.UsagePage == 0xFF43 && (c.Usage == 0x0202 || (passthrough && c.Usage == 0x0302)))))
+                        allLongs.Add(c);
+                }
+                if (allShorts.Count == 0 && allLongs.Count == 0) continue;
+
+                List<string> groups = new List<string>();
+                foreach (HidCollectionInfo c in allLongs) { string k = GetHidPhysicalKey(c.Path); if (!groups.Contains(k)) groups.Add(k); }
+                foreach (HidCollectionInfo c in allShorts) { string k = GetHidPhysicalKey(c.Path); if (!groups.Contains(k)) groups.Add(k); }
+
+                bool anyFoundForPid = false;
+                for (int gi = 0; gi < groups.Count; gi++)
+                {
+                    string gk = groups[gi];
+                    HidCollectionInfo shortC = null, longC = null;
+                    foreach (HidCollectionInfo c in allShorts) if (GetHidPhysicalKey(c.Path) == gk) { shortC = c; break; }
+                    foreach (HidCollectionInfo c in allLongs) if (GetHidPhysicalKey(c.Path) == gk) { longC = c; break; }
+
+                    IntPtr hShort = (shortC != null) ? CreateFile(shortC.Path, 0xC0000000U, 3, IntPtr.Zero, 3, 0x40000000U, IntPtr.Zero) : IntPtr.Zero;
+                    IntPtr hLong = (longC != null) ? CreateFile(longC.Path, 0xC0000000U, 3, IntPtr.Zero, 3, 0x40000000U, IntPtr.Zero) : IntPtr.Zero;
+                    if (hShort == new IntPtr(-1)) hShort = IntPtr.Zero;
+                    if (hLong == new IntPtr(-1)) hLong = IntPtr.Zero;
+                    if (hShort == IntPtr.Zero && hLong == IntPtr.Zero) continue;
+
+                    try
+                    {
+                        HidCollectionInfo refC = longC ?? shortC;
+                        string product = ReadUsbProductName(refC.Path, "");
+                        bool isReceiver = product.IndexOf("Receiver", StringComparison.OrdinalIgnoreCase) >= 0;
+                        string lowPath = (refC.Path ?? "").ToLowerInvariant();
+                        bool isBt = lowPath.IndexOf("{00001812-", StringComparison.Ordinal) >= 0 || lowPath.IndexOf("{00001124-", StringComparison.Ordinal) >= 0;
+
+                        byte[] indices;
+                        byte[] pingP;
+                        byte pingErr;
+                        if (passthrough)
+                            indices = new byte[] { 1 };
+                        else if (isBt || (!isReceiver && HidppRequest(hShort, hLong, 0xFF, 0x00, 0x1D, new byte[] { 0, 0, 0x5A }, out pingP, out pingErr, false, 350) == 1 && pingP != null && pingP.Length >= 3 && pingP[0] >= 2))
+                            indices = new byte[] { 0xFF };
+                        else
+                            indices = new byte[] { 1, 2, 3, 4, 5, 6 };
+
+                        for (int ii = 0; ii < indices.Length; ii++)
+                        {
+                            byte idx = indices[ii];
+                            string cacheKey = string.Format("LOGI_{0:X4}_{1}_{2}", pid, gi, idx);
+                            int pingTimeout = (idx == 0xFF) ? 350 : 600;
+                            byte[] p;
+                            byte err;
+                            int r = HidppRequest(hShort, hLong, idx, 0x00, 0x1D, new byte[] { 0, 0, 0x5A }, out p, out err, false, pingTimeout);
+
+                            int pct = -1;
+                            bool charging = false;
+                            int mv = 0;
+                            string devName = (idx == 0xFF && !string.IsNullOrEmpty(product)) ? product : "Logitech Wireless";
+                            string kindHint = passthrough ? "Mouse" : "";
+                            string unitId = "";
+                            bool found = false;
+
+                            if (r == 1 && p != null && p.Length >= 3 && p[0] >= 2)
+                            {
+                                // Name & Type (0x0005)
+                                byte fName = HidppFeatureIndex(hShort, hLong, idx, 0x0005);
+                                if (fName != 0)
+                                {
+                                    byte[] np;
+                                    if (HidppCall20(hShort, hLong, idx, fName, 0, null, out np) && np.Length > 0)
+                                    {
+                                        int nameLen = Math.Min(64, (int)np[0]);
+                                        StringBuilder nsb = new StringBuilder(nameLen);
+                                        while (nsb.Length < nameLen)
+                                        {
+                                            byte[] chunk;
+                                            if (!HidppCall20(hShort, hLong, idx, fName, 1, new byte[] { (byte)nsb.Length }, out chunk) || chunk.Length == 0) break;
+                                            int before = nsb.Length;
+                                            for (int ci = 0; ci < chunk.Length && nsb.Length < nameLen; ci++)
+                                            {
+                                                if (chunk[ci] == 0) break;
+                                                nsb.Append((char)chunk[ci]);
+                                            }
+                                            if (nsb.Length == before) break;
+                                        }
+                                        string nStr = nsb.ToString().Trim();
+                                        if (!string.IsNullOrEmpty(nStr))
+                                        {
+                                            devName = (nStr.StartsWith("Logitech", StringComparison.OrdinalIgnoreCase) ||
+                                                       nStr.StartsWith("G ", StringComparison.OrdinalIgnoreCase) ||
+                                                       nStr.StartsWith("MX", StringComparison.OrdinalIgnoreCase) ||
+                                                       nStr.StartsWith("PRO", StringComparison.OrdinalIgnoreCase))
+                                                ? nStr : ("Logitech " + nStr);
+                                        }
+                                    }
+                                    if (HidppCall20(hShort, hLong, idx, fName, 2, null, out np) && np.Length > 0)
+                                    {
+                                        byte t = np[0];
+                                        if (t == 0x00 || t == 0x02) kindHint = "Keyboard";
+                                        else if (t == 0x03 || t == 0x04 || t == 0x05) kindHint = "Mouse";
+                                        else if (t == 0x08) kindHint = "Headset";
+                                        else if (t == 0x0B || t == 0x0C) kindHint = "Gamepad";
+                                    }
+                                }
+
+                                // Battery: 0x1004 (Unified), 0x1000 (Status), 0x1001 (Voltage), 0x1F20 (Headset ADC)
+                                byte[] bp;
+                                byte fBat;
+                                if ((fBat = HidppFeatureIndex(hShort, hLong, idx, 0x1004)) != 0 && HidppCall20(hShort, hLong, idx, fBat, 1, null, out bp) && bp.Length >= 3)
+                                {
+                                    int soc = bp[0], lvl = bp[1], st = bp[2];
+                                    if (soc > 0 && soc <= 100) pct = soc;
+                                    else if (lvl != 0) pct = (lvl & 8) != 0 ? 100 : ((lvl & 4) != 0 ? 60 : ((lvl & 2) != 0 ? 20 : 5));
+                                    charging = (st == 1 || st == 2 || st == 3);
+                                    found = (pct > 0);
+                                }
+                                else if ((fBat = HidppFeatureIndex(hShort, hLong, idx, 0x1000)) != 0 && HidppCall20(hShort, hLong, idx, fBat, 0, null, out bp) && bp.Length >= 3)
+                                {
+                                    int st = bp[2];
+                                    charging = (st >= 1 && st <= 4);
+                                    pct = bp[0] <= 100 ? (int)bp[0] : -1;
+                                    if (pct == 0 && st == 3) pct = 100;
+                                    found = (pct > 0);
+                                }
+                                else if ((fBat = HidppFeatureIndex(hShort, hLong, idx, 0x1001)) != 0 && HidppCall20(hShort, hLong, idx, fBat, 0, null, out bp) && bp.Length >= 3)
+                                {
+                                    mv = (bp[0] << 8) | bp[1];
+                                    charging = (bp[2] & 0x80) != 0;
+                                    if (mv > 0) { pct = LogitechLiIonPercent(mv); found = true; }
+                                }
+                                else if ((fBat = HidppFeatureIndex(hShort, hLong, idx, 0x1F20)) != 0 && HidppCall20(hShort, hLong, idx, fBat, 0, null, out bp) && bp.Length >= 3)
+                                {
+                                    mv = (bp[0] << 8) | bp[1];
+                                    charging = (bp[2] == 0x03);
+                                    if (mv > 0) { pct = LogitechHeadsetPercent(pid, mv); found = true; }
+                                    if (string.IsNullOrEmpty(kindHint)) kindHint = "Headset";
+                                }
+
+                                if (found)
+                                {
+                                    byte fInfo = HidppFeatureIndex(hShort, hLong, idx, 0x0003);
+                                    byte[] ip;
+                                    if (fInfo != 0 && HidppCall20(hShort, hLong, idx, fInfo, 0, null, out ip) && ip.Length >= 5 && (ip[1] != 0 || ip[2] != 0 || ip[3] != 0 || ip[4] != 0))
+                                        unitId = string.Format("{0:X2}{1:X2}{2:X2}{3:X2}", ip[1], ip[2], ip[3], ip[4]);
+                                    if (string.IsNullOrEmpty(kindHint) && longC != null && longC.UsagePage == 0xFF43)
+                                        kindHint = "Headset";
+                                }
+                            }
+                            else if (r == 0 && err == 0x01)
+                            {
+                                // HID++ 1.0 fallback (registers 0x0D and 0x07)
+                                byte[] bp;
+                                byte bErr;
+                                if (HidppRequest(hShort, hLong, idx, 0x81, 0x0D, null, out bp, out bErr, true, 350) == 1 && bp != null && bp.Length >= 3 && bp[0] > 0 && bp[0] <= 100)
+                                {
+                                    pct = bp[0];
+                                    charging = (bp[2] >= 0x21 && bp[2] <= 0x26);
+                                    found = true;
+                                }
+                                else if (HidppRequest(hShort, hLong, idx, 0x81, 0x07, null, out bp, out bErr, true, 350) == 1 && bp != null && bp.Length >= 2 && bp[0] > 0)
+                                {
+                                    int[] lvlPct = { 0, 5, 10, 20, 35, 50, 75, 100 };
+                                    pct = lvlPct[bp[0] > 7 ? 7 : bp[0]];
+                                    charging = (bp[1] >= 0x21 && bp[1] <= 0x26);
+                                    found = true;
+                                }
+                            }
+
+                            if (found && pct > 0 && pct <= 100)
+                            {
+                                anyFoundForPid = true;
+                                if (!string.IsNullOrEmpty(unitId) && !seenUnitIds.Add(unitId)) continue;
+                                if (addedNames.Contains(devName)) continue;
+                                lastKnownPcts[cacheKey] = pct;
+
+                                string icon, typeLabel;
+                                ClassifyDeviceTypeAndIcon(devName, kindHint, isEn, out icon, out typeLabel);
+                                string linkText = isBt ? "Bluetooth" : (idx == 0xFF ? "USB" : "2.4GHz");
+                                string detail = charging
+                                    ? (typeLabel + " • " + (isEn ? "⚡ Charging" : "⚡ Şarjda"))
+                                    : (mv > 3000 && mv < 4500 ? string.Format("{0} • {1:0.00}V", typeLabel, mv / 1000.0) : (typeLabel + " • " + linkText));
+                                results.Add(new WirelessDeviceReading
+                                {
+                                    IdKey = !string.IsNullOrEmpty(unitId) ? ("LOGI_UNIT_" + unitId) : cacheKey,
+                                    Icon = icon,
+                                    Name = devName,
+                                    Detail = detail,
+                                    PctText = isEn ? (pct + "%") : ("%" + pct),
+                                    BarPct = pct,
+                                    IsCharging = charging
+                                });
+                                addedNames.Add(devName);
+                            }
+                        }
+                    }
+                    finally
+                    {
+                        if (hShort != IntPtr.Zero) CloseHandle(hShort);
+                        if (hLong != IntPtr.Zero) CloseHandle(hLong);
+                    }
+                }
+
+                if (anyFoundForPid)
+                {
+                    foreach (HidCollectionInfo c in kv.Value) claimDev(c.Vid, c.Pid, c.ContainerId);
+                }
+            }
+        }
+
+        private static byte RazerKeyboardTid(ushort pid)
+        {
+            switch (pid)
+            {
+                case 0x025C: case 0x0271: case 0x0290: case 0x0296:
+                case 0x02BA: case 0x02C9: case 0x02D2: case 0x02D5: return 0x9F;
+                case 0x0258: case 0x0292: case 0x0298: case 0x02B9:
+                case 0x02CD: case 0x02D4: case 0x02D7: return 0x1F;
+                case 0x025A: return 0x3F;
+                default: return 0;
+            }
+        }
+
+        // Returns: 1 = Ok, 2 = Offline, 0 = Unsupported/NoReply
+        private static int RazerFeatureCommand(IntPtr hDev, byte tid, byte cls, byte id, byte size, out byte[] args, byte firstArg, bool fastSlotQuery)
+        {
+            args = null;
+            byte[] rep = new byte[91];
+            rep[0] = 0x00;
+            rep[1 + 1] = tid;
+            rep[1 + 5] = size;
+            rep[1 + 6] = cls;
+            rep[1 + 7] = id;
+            rep[1 + 8] = firstArg;
+            byte crc = 0;
+            for (int i = 2; i < 88; i++) crc ^= rep[1 + i];
+            rep[1 + 88] = crc;
+
+            byte[] resp = new byte[91];
+            bool send = true;
+            int res = 0;
+            int maxAttempts = fastSlotQuery ? 4 : 6;
+            for (int attempt = 0; attempt < maxAttempts; attempt++)
+            {
+                if (send && !HidD_SetFeature(hDev, rep, (uint)rep.Length)) return 0;
+                System.Threading.Thread.Sleep(fastSlotQuery ? 6 : (attempt == 0 ? 15 : 30));
+                send = true;
+                Array.Clear(resp, 0, resp.Length);
+                resp[0] = 0x00;
+                if (!HidD_GetFeature(hDev, resp, (uint)resp.Length)) continue;
+
+                byte replyCrc = 0;
+                for (int i = 2; i < 88; i++) replyCrc ^= resp[1 + i];
+                if (resp[1 + 1] != tid || resp[1 + 2] != 0 || resp[1 + 3] != 0 || resp[1 + 4] != 0 ||
+                    resp[1 + 5] != size || resp[1 + 6] != cls || resp[1 + 7] != id || resp[1 + 88] != replyCrc)
+                    continue;
+
+                byte st = resp[1 + 0];
+                if (st == 0x01) { send = false; continue; } // busy
+                if (st == 0x02)
+                {
+                    args = new byte[80];
+                    Array.Copy(resp, 1 + 8, args, 0, 80);
+                    return 1;
+                }
+                if (st == 0x04) { res = 2; continue; } // offline/timeout
+                if (st == 0x03 || st == 0x05) return 0; // failed / unsupported
+            }
+            return res;
+        }
+
+        private static string CleanRazerName(string raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) return "Razer Device";
+            string n = Regex.Replace(raw.Trim(), "(?i)\\s*(hyperspeed\\s*dongle|wireless\\s*receiver|dongle|receiver|\\(wired\\)|\\(wireless\\))$", "").Trim();
+            return string.IsNullOrEmpty(n) ? "Razer Device" : n;
+        }
+
+        private static void PollRazerHid(
+            List<HidCollectionInfo> colls,
+            bool isEn,
+            HashSet<uint> claimedVidPids,
+            Action<ushort, ushort, Guid> claimDev,
+            Dictionary<string, int> lastKnownPcts,
+            HashSet<string> addedNames,
+            List<WirelessDeviceReading> results)
+        {
+            Dictionary<ushort, List<HidCollectionInfo>> byPid = new Dictionary<ushort, List<HidCollectionInfo>>();
+            foreach (HidCollectionInfo c in colls)
+            {
+                if (c.Vid != 0x1532) continue;
+                List<HidCollectionInfo> list;
+                if (!byPid.TryGetValue(c.Pid, out list)) { list = new List<HidCollectionInfo>(); byPid[c.Pid] = list; }
+                list.Add(c);
+            }
+
+            foreach (var kv in byPid)
+            {
+                ushort pid = kv.Key;
+                uint vpk = ((uint)0x1532 << 16) | pid;
+                if (claimedVidPids.Contains(vpk)) continue;
+
+                // 1F-A: Razer BlackShark V2 HyperSpeed (1532:0565, MediaTek 64-byte Report 0x02)
+                if (pid == 0x0565)
+                {
+                    HidCollectionInfo targetC = null;
+                    foreach (HidCollectionInfo c in kv.Value)
+                        if (c.UsagePage == 0xFF14 && c.Usage == 0x01 && c.OutLen >= 64 && c.InLen >= 64) { targetC = c; break; }
+                    if (targetC == null)
+                        foreach (HidCollectionInfo c in kv.Value)
+                            if (c.UsagePage == 0xFF00 && c.Usage == 0x01 && c.OutLen >= 64 && c.InLen >= 64) { targetC = c; break; }
+
+                    if (targetC != null)
+                    {
+                        IntPtr hBs = CreateFile(targetC.Path, 0xC0000000U, 3, IntPtr.Zero, 3, 0x40000000U, IntPtr.Zero);
+                        if (hBs != IntPtr.Zero && hBs != new IntPtr(-1))
+                        {
+                            try
+                            {
+                                Func<byte, byte, int> queryBs = (cmd, seq) =>
+                                {
+                                    byte[] tx = new byte[64];
+                                    tx[0] = 0x02; tx[2] = seq; tx[6] = 0x04; tx[9] = 0x80; tx[10] = cmd;
+                                    byte xor = 0;
+                                    for (int i = 0; i < 62; i++) xor ^= tx[i];
+                                    tx[62] = xor;
+                                    HidD_FlushQueue(hBs);
+                                    byte[] rx;
+                                    if (OverlappedHidReadWithRetry(hBs, tx, targetC.InLen, out rx, r =>
+                                    {
+                                        if (r.Length < 64 || r[0] != 0x02 || r[2] != seq || r[10] != cmd || r[12] < 1) return false;
+                                        byte csum = 0;
+                                        for (int i = 1; i < 62; i++) csum ^= r[i];
+                                        return csum == r[62];
+                                    }, 500))
+                                    {
+                                        return rx[13];
+                                    }
+                                    return -1;
+                                };
+                                int pct = queryBs(0x21, 0x61);
+                                if (pct > 0 && pct <= 100)
+                                {
+                                    int chg = queryBs(0x2A, 0x62);
+                                    bool charging = chg > 0;
+                                    string name = "Razer BlackShark V2 HyperSpeed";
+                                    if (!addedNames.Contains(name))
+                                    {
+                                        results.Add(new WirelessDeviceReading
+                                        {
+                                            IdKey = "RAZER_BS_0565",
+                                            Icon = "🎧",
+                                            Name = name,
+                                            Detail = charging ? (isEn ? "Headset • ⚡ Charging" : "Kulaklık • ⚡ Şarjda") : (isEn ? "Headset • 2.4GHz" : "Kulaklık • 2.4GHz"),
+                                            PctText = isEn ? (pct + "%") : ("%" + pct),
+                                            BarPct = pct,
+                                            IsCharging = charging
+                                        });
+                                        addedNames.Add(name);
+                                    }
+                                    foreach (HidCollectionInfo c in kv.Value) claimDev(c.Vid, c.Pid, c.ContainerId);
+                                    continue;
+                                }
+                            }
+                            finally { CloseHandle(hBs); }
+                        }
+                    }
+                }
+
+                // 1F-B: Standard Razer 90-byte Feature Report protocol (mice, keyboards, HyperSpeed dongles)
+                foreach (HidCollectionInfo c in kv.Value)
+                {
+                    if (c.FeatLen != 91) continue;
+                    // Open with access=0 (feature-only) so we never interfere with mouse/keyboard input or Synapse
+                    IntPtr hRz = CreateFile(c.Path, 0, 3, IntPtr.Zero, 3, 0, IntPtr.Zero);
+                    if (hRz == IntPtr.Zero || hRz == new IntPtr(-1)) continue;
+                    try
+                    {
+                        // Check HyperSpeed Multi-Device dongle slots first (cls 0x00, id 0xBF)
+                        byte[] slotArgs;
+                        if (RazerFeatureCommand(hRz, 0x1F, 0x00, 0xBF, 0x31, out slotArgs, 0x10, true) == 1 &&
+                            slotArgs != null && slotArgs[0] == 2 && slotArgs[1] <= 1 && slotArgs[4] <= 1)
+                        {
+                            ushort s0Pid = (ushort)((slotArgs[2] << 8) | slotArgs[3]);
+                            ushort s1Pid = (ushort)((slotArgs[5] << 8) | slotArgs[6]);
+                            if (s0Pid != 0 && s0Pid != 0xFFFF && s1Pid != 0 && s1Pid != 0xFFFF && s0Pid != s1Pid)
+                            {
+                                ushort[] sPids = { s0Pid, s1Pid };
+                                byte[] sTids = { 0x1F, 0x9F };
+                                bool[] sAct = { slotArgs[1] == 1, slotArgs[4] == 1 };
+                                string[] sKinds = { "Mouse", "Keyboard" };
+                                for (int si = 0; si < 2; si++)
+                                {
+                                    if (!sAct[si]) continue;
+                                    byte[] batArgs;
+                                    if (RazerFeatureCommand(hRz, sTids[si], 0x07, 0x80, 0x02, out batArgs, 0, false) == 1 && batArgs != null)
+                                    {
+                                        int pct = Math.Max(0, Math.Min(100, (batArgs[1] * 100 + 127) / 255));
+                                        if (pct <= 0) continue;
+                                        byte[] chArgs;
+                                        bool charging = RazerFeatureCommand(hRz, sTids[si], 0x07, 0x84, 0x02, out chArgs, 0, false) == 1 && chArgs != null && chArgs[1] == 1;
+                                        string sName = (sKinds[si] == "Mouse" ? "Razer Mouse (" : "Razer Keyboard (") + sPids[si].ToString("X4") + ")";
+                                        if (sPids[si] == 0x00A8) sName = "Razer Naga V2 Pro";
+                                        else if (sPids[si] == 0x00DF) sName = "Razer Viper V3 Pro SE";
+                                        else if (sPids[si] == 0x0296) sName = "Razer DeathStalker V2 Pro TKL";
+                                        else if (sPids[si] == 0x02D5) sName = "Razer BlackWidow V4 TKL HyperSpeed";
+                                        if (addedNames.Contains(sName)) continue;
+                                        string slotIcon, slotTypeLabel;
+                                        ClassifyDeviceTypeAndIcon(sName, sKinds[si], isEn, out slotIcon, out slotTypeLabel);
+                                        results.Add(new WirelessDeviceReading
+                                        {
+                                            IdKey = "RAZER_" + sPids[si].ToString("X4"),
+                                            Icon = slotIcon,
+                                            Name = sName,
+                                            Detail = charging ? (slotTypeLabel + " • " + (isEn ? "⚡ Charging" : "⚡ Şarjda")) : (slotTypeLabel + " • 2.4GHz"),
+                                            PctText = isEn ? (pct + "%") : ("%" + pct),
+                                            BarPct = pct,
+                                            IsCharging = charging
+                                        });
+                                        addedNames.Add(sName);
+                                    }
+                                }
+                                foreach (HidCollectionInfo cc in kv.Value) claimDev(cc.Vid, cc.Pid, cc.ContainerId);
+                                break;
+                            }
+                        }
+
+                        // Single-device battery probe across documented Razer transaction IDs
+                        byte kbdTid = RazerKeyboardTid(pid);
+                        byte[] tids = kbdTid != 0 ? new byte[] { kbdTid } : new byte[] { 0x1F, 0x3F, 0xFF, 0x08, 0x9F };
+                        byte matchedTid = 0;
+                        byte[] bArgs = null;
+                        int rRes = 0;
+                        bool sawOffline = false;
+                        for (int ti = 0; ti < tids.Length; ti++)
+                        {
+                            byte[] tmpArgs;
+                            int rr = RazerFeatureCommand(hRz, tids[ti], 0x07, 0x80, 0x02, out tmpArgs, 0, false);
+                            if (rr == 1) { rRes = 1; matchedTid = tids[ti]; bArgs = tmpArgs; break; }
+                            if (rr == 2) sawOffline = true;
+                        }
+                        if (rRes != 1 && !sawOffline) continue;
+
+                        string cleanName = CleanRazerName(ReadUsbProductName(c.Path, "Razer Wireless"));
+                        string idKey = (pid == 0x00A5 || pid == 0x00A6) ? "RAZER_00A6" : ("RAZER_" + pid.ToString("X4"));
+                        string kindHint = (kbdTid != 0 || (pid >= 0x0200 && pid <= 0x02FF)) ? "Keyboard" : "Mouse";
+                        string icon, typeLabel;
+                        ClassifyDeviceTypeAndIcon(cleanName, kindHint, isEn, out icon, out typeLabel);
+
+                        if (rRes == 1 && bArgs != null)
+                        {
+                            int pct = Math.Max(0, Math.Min(100, (bArgs[1] * 100 + 127) / 255));
+                            if (pct > 0 && !addedNames.Contains(cleanName))
+                            {
+                                byte[] chArgs;
+                                bool charging = RazerFeatureCommand(hRz, matchedTid, 0x07, 0x84, 0x02, out chArgs, 0, false) == 1 && chArgs != null && chArgs[1] == 1;
+                                lastKnownPcts[idKey] = pct;
+                                results.Add(new WirelessDeviceReading
+                                {
+                                    IdKey = idKey,
+                                    Icon = icon,
+                                    Name = cleanName,
+                                    Detail = charging ? (typeLabel + " • " + (isEn ? "⚡ Charging" : "⚡ Şarjda")) : (typeLabel + " • " + (pid == 0x00A5 ? "USB" : "2.4GHz")),
+                                    PctText = isEn ? (pct + "%") : ("%" + pct),
+                                    BarPct = pct,
+                                    IsCharging = charging
+                                });
+                                addedNames.Add(cleanName);
+                            }
+                            foreach (HidCollectionInfo cc in kv.Value) claimDev(cc.Vid, cc.Pid, cc.ContainerId);
+                            break;
+                        }
+                        else if (sawOffline && lastKnownPcts.ContainsKey(idKey) && lastKnownPcts[idKey] > 0 && !addedNames.Contains(cleanName))
+                        {
+                            int lastPct = lastKnownPcts[idKey];
+                            results.Add(new WirelessDeviceReading
+                            {
+                                IdKey = idKey,
+                                Icon = icon,
+                                Name = cleanName,
+                                Detail = typeLabel + " • " + (isEn ? "Sleep" : "Uyku"),
+                                PctText = isEn ? (lastPct + "%") : ("%" + lastPct),
+                                BarPct = lastPct,
+                                IsCharging = false,
+                                IsAsleep = true
+                            });
+                            addedNames.Add(cleanName);
+                            foreach (HidCollectionInfo cc in kv.Value) claimDev(cc.Vid, cc.Pid, cc.ContainerId);
+                            break;
+                        }
+                    }
+                    finally { CloseHandle(hRz); }
+                }
+            }
+        }
+
+        private static bool BragiGetProperty(IntPtr hDev, bool numbered, int outLen, int inLen, ref int mode, byte target, byte prop, out uint value)
+        {
+            value = 0;
+            // mode: 0 = unknown, 1 = prefixed, 2 = plain
+            int[] tryModes = mode == 1 ? new int[] { 1 } : (mode == 2 ? new int[] { 2 } : new int[] { 1, 2 });
+            byte source = (byte)(target & 0x07);
+            for (int mi = 0; mi < tryModes.Length; mi++)
+            {
+                bool plain = (tryModes[mi] == 2);
+                byte[] tx = new byte[Math.Max(64, outLen)];
+                if (plain)
+                {
+                    tx[0] = 0x00; tx[1] = target; tx[2] = 0x02; tx[3] = prop;
+                }
+                else if (numbered)
+                {
+                    tx[0] = 0x02; tx[1] = target; tx[2] = 0x02; tx[3] = prop;
+                }
+                else
+                {
+                    tx[0] = 0x00; tx[1] = 0x02; tx[2] = target; tx[3] = 0x02; tx[4] = prop;
+                }
+                int o = plain ? 0 : 1;
+                HidD_FlushQueue(hDev);
+                byte[] rx;
+                if (OverlappedHidReadWithRetry(hDev, tx, inLen, out rx, r => r.Length >= o + 7 && r[o] == source && r[o + 1] == 0x02, 280))
+                {
+                    if (rx[o + 2] == 0x00)
+                    {
+                        value = (uint)(rx[o + 3] | (rx[o + 4] << 8) | (rx[o + 5] << 16) | (rx[o + 6] << 24));
+                        mode = tryModes[mi];
+                        return true;
+                    }
+                    // Device explicitly answered with non-zero status (e.g. property unsupported) -> framing is valid
+                    mode = tryModes[mi];
+                    return false;
+                }
+            }
+            return false;
+        }
+
+        private static void PollCorsairHid(
+            List<HidCollectionInfo> colls,
+            bool isEn,
+            HashSet<uint> claimedVidPids,
+            Action<ushort, ushort, Guid> claimDev,
+            HashSet<string> addedNames,
+            List<WirelessDeviceReading> results)
+        {
+            HashSet<ushort> voidPids = new HashSet<ushort>
+            {
+                0x1B1C, 0x1B27, 0x0A14, 0x0A16, 0x0A17, 0x0A1D, 0x0A1A, 0x1B2A, 0x1B23,
+                0x1B29, 0x0A55, 0x0A51, 0x0A52, 0x0A38, 0x0A4F, 0x0A2B, 0x0A75, 0x0A56
+            };
+            HashSet<ushort> bragiPids = new HashSet<ushort>
+            {
+                0x2A08, 0x2A02, 0x0A97, 0x0A64, 0x0A62, 0x0A3E, 0x0A3D, 0x2B00
+            };
+
+            Dictionary<ushort, List<HidCollectionInfo>> byPid = new Dictionary<ushort, List<HidCollectionInfo>>();
+            foreach (HidCollectionInfo c in colls)
+            {
+                if (c.Vid != 0x1B1C) continue;
+                List<HidCollectionInfo> list;
+                if (!byPid.TryGetValue(c.Pid, out list)) { list = new List<HidCollectionInfo>(); byPid[c.Pid] = list; }
+                list.Add(c);
+            }
+
+            foreach (var kv in byPid)
+            {
+                ushort pid = kv.Key;
+                uint vpk = ((uint)0x1B1C << 16) | pid;
+                if (claimedVidPids.Contains(vpk)) continue;
+
+                // 1G-A: Corsair Void / Void Pro / Void Elite / HS70 / HS80 legacy headsets (0xC9 0x64)
+                if (voidPids.Contains(pid))
+                {
+                    foreach (HidCollectionInfo c in kv.Value)
+                    {
+                        if ((c.UsagePage != 0xFFC5 && c.UsagePage != 0xFF00) || c.OutLen <= 0 || c.InLen < 5) continue;
+                        IntPtr hVoid = CreateFile(c.Path, 0xC0000000U, 3, IntPtr.Zero, 3, 0x40000000U, IntPtr.Zero);
+                        if (hVoid == IntPtr.Zero || hVoid == new IntPtr(-1)) continue;
+                        try
+                        {
+                            byte[] tx = new byte[Math.Max(2, (int)c.OutLen)];
+                            tx[0] = 0xC9; tx[1] = 0x64;
+                            HidD_FlushQueue(hVoid);
+                            byte[] rx;
+                            if (OverlappedHidReadWithRetry(hVoid, tx, c.InLen, out rx, r => r.Length >= 5, 600))
+                            {
+                                byte st = rx[4];
+                                bool connected = st != 0;
+                                bool charging = (st == 4 || st == 5);
+                                int pct = (st == 1 || st == 2 || charging) ? Math.Max(0, Math.Min(100, rx[2] & 0x7F)) : 0;
+                                foreach (HidCollectionInfo cc in kv.Value) claimDev(cc.Vid, cc.Pid, cc.ContainerId);
+                                if (connected && pct > 0)
+                                {
+                                    string name = ReadUsbProductName(c.Path, "Corsair Wireless Headset");
+                                    if (!addedNames.Contains(name))
+                                    {
+                                        results.Add(new WirelessDeviceReading
+                                        {
+                                            IdKey = "CORSAIR_" + pid.ToString("X4"),
+                                            Icon = "🎧",
+                                            Name = name,
+                                            Detail = charging ? (isEn ? "Headset • ⚡ Charging" : "Kulaklık • ⚡ Şarjda") : (isEn ? "Headset • 2.4GHz" : "Kulaklık • 2.4GHz"),
+                                            PctText = isEn ? (pct + "%") : ("%" + pct),
+                                            BarPct = pct,
+                                            IsCharging = charging
+                                        });
+                                        addedNames.Add(name);
+                                    }
+                                }
+                                break;
+                            }
+                        }
+                        finally { CloseHandle(hVoid); }
+                    }
+                    continue;
+                }
+
+                // 1G-B: Corsair CompX mice (Sabre V2 Pro Ultralight 2B2A / MG 2B34)
+                if (pid == 0x2B2A || pid == 0x2B34)
+                {
+                    foreach (HidCollectionInfo c in kv.Value)
+                    {
+                        if (c.UsagePage != 0xFF02 || c.Usage != 0x0002 || c.OutLen < 17 || c.InLen < 17) continue;
+                        IntPtr hCx = CreateFile(c.Path, 0xC0000000U, 3, IntPtr.Zero, 3, 0x40000000U, IntPtr.Zero);
+                        if (hCx == IntPtr.Zero || hCx == new IntPtr(-1)) continue;
+                        try
+                        {
+                            byte[] tx = new byte[17];
+                            tx[0] = 0x08; tx[1] = 0x04; tx[16] = 0x49;
+                            byte[] rx;
+                            if (OverlappedHidQuery(hCx, tx, out rx, 17, 150) && rx[0] == 0x08 && rx[1] == 0x04)
+                            {
+                                int pct = rx[6];
+                                bool charging = rx[7] != 0;
+                                int mv = (rx[8] << 8) | rx[9];
+                                foreach (HidCollectionInfo cc in kv.Value) claimDev(cc.Vid, cc.Pid, cc.ContainerId);
+                                if (pct > 0 && pct <= 100)
+                                {
+                                    string name = pid == 0x2B2A ? "Corsair Sabre V2 Pro Ultralight" : "Corsair Sabre V2 Pro MG";
+                                    if (!addedNames.Contains(name))
+                                    {
+                                        results.Add(new WirelessDeviceReading
+                                        {
+                                            IdKey = "CORSAIR_" + pid.ToString("X4"),
+                                            Icon = "🖱",
+                                            Name = name,
+                                            Detail = charging ? (isEn ? "Mouse • ⚡ Charging" : "Fare • ⚡ Şarjda")
+                                                : (mv > 3000 && mv < 4500 ? string.Format("{0} • {1:0.00}V", isEn ? "Mouse" : "Fare", mv / 1000.0) : (isEn ? "Mouse • 2.4GHz" : "Fare • 2.4GHz")),
+                                            PctText = isEn ? (pct + "%") : ("%" + pct),
+                                            BarPct = pct,
+                                            IsCharging = charging
+                                        });
+                                        addedNames.Add(name);
+                                    }
+                                }
+                                break;
+                            }
+                        }
+                        finally { CloseHandle(hCx); }
+                    }
+                    continue;
+                }
+
+                // 1G-C: Corsair Bragi / Slipstream protocol (Virtuoso, HS80 MAX, Void V2, Slipstream mice/keyboards)
+                bool knownBragi = bragiPids.Contains(pid);
+                foreach (HidCollectionInfo c in kv.Value)
+                {
+                    bool sizes = (c.OutLen == 64 || c.OutLen == 65) && (c.InLen == 64 || c.InLen == 65);
+                    if (!sizes) continue;
+                    if (!(c.UsagePage == 0xFF42 || (knownBragi && c.UsagePage >= 0xFF00))) continue;
+
+                    IntPtr hBr = CreateFile(c.Path, 0xC0000000U, 3, IntPtr.Zero, 3, 0x40000000U, IntPtr.Zero);
+                    if (hBr == IntPtr.Zero || hBr == new IntPtr(-1)) continue;
+                    try
+                    {
+                        bool numbered = (c.OutLen == 64);
+                        int brMode = 0;
+                        bool any = false;
+                        string product = ReadUsbProductName(c.Path, "Corsair Wireless");
+                        byte[] targets = new byte[] { 0x09, 0x0A, 0x0B, 0x08 };
+                        for (int ti = 0; ti < targets.Length; ti++)
+                        {
+                            byte target = targets[ti];
+                            if (target == 0x08 && any) break;
+                            uint level;
+                            bool ok = BragiGetProperty(hBr, numbered, c.OutLen, c.InLen, ref brMode, target, 0x0F, out level);
+                            for (int retry = 0; ok && (level == 0 || level > 1000) && retry < 2; retry++)
+                                ok = BragiGetProperty(hBr, numbered, c.OutLen, c.InLen, ref brMode, target, 0x0F, out level);
+                            if (!ok || level == 0 || level > 1000) continue;
+
+                            int pct = Math.Max(0, Math.Min(100, (int)((level + 5) / 10)));
+                            if (pct <= 0) continue;
+                            uint chVal;
+                            bool charging = BragiGetProperty(hBr, numbered, c.OutLen, c.InLen, ref brMode, target, 0x10, out chVal) && (chVal == 1 || chVal == 3);
+
+                            string devName = Regex.Replace(product, "(?i)\\s*(slipstream|wireless)?\\s*(gaming)?\\s*(receiver|dongle)$", "").Trim();
+                            if (string.IsNullOrEmpty(devName)) devName = "Corsair Wireless";
+                            string kindHint = ((pid >> 8) == 0x0A) ? "Headset" : "";
+
+                            uint pairedPid;
+                            if (target != 0x08 && BragiGetProperty(hBr, numbered, c.OutLen, c.InLen, ref brMode, target, 0x12, out pairedPid))
+                            {
+                                if (pairedPid == 0x1B7E) { devName = "Corsair Dark Core RGB Pro SE"; kindHint = "Mouse"; }
+                                else if ((pairedPid >> 8) == 0x0A)
+                                {
+                                    kindHint = "Headset";
+                                    if (product.IndexOf("Receiver", StringComparison.OrdinalIgnoreCase) >= 0) devName = "Corsair Wireless Headset";
+                                }
+                            }
+
+                            if (!addedNames.Contains(devName))
+                            {
+                                string icon, typeLabel;
+                                ClassifyDeviceTypeAndIcon(devName, kindHint, isEn, out icon, out typeLabel);
+                                results.Add(new WirelessDeviceReading
+                                {
+                                    IdKey = string.Format("CORSAIR_{0:X4}_{1:X2}", pid, target),
+                                    Icon = icon,
+                                    Name = devName,
+                                    Detail = charging ? (typeLabel + " • " + (isEn ? "⚡ Charging" : "⚡ Şarjda")) : (typeLabel + " • " + (target == 0x08 ? "USB" : "2.4GHz")),
+                                    PctText = isEn ? (pct + "%") : ("%" + pct),
+                                    BarPct = pct,
+                                    IsCharging = charging
+                                });
+                                addedNames.Add(devName);
+                            }
+                            any = true;
+                        }
+                        if (any)
+                        {
+                            foreach (HidCollectionInfo cc in kv.Value) claimDev(cc.Vid, cc.Pid, cc.ContainerId);
+                            break;
+                        }
+                    }
+                    finally { CloseHandle(hBr); }
+                }
+            }
+        }
+
+        private static bool OverlappedHidReadWithRetry(IntPtr hFile, byte[] tx, int rxLen, out byte[] rxOut, Func<byte[], bool> matcher, int timeoutMs)
+        {
+            rxOut = null;
+            if (rxLen <= 0) return false;
+            IntPtr evW = CreateEvent(IntPtr.Zero, true, false, null);
+            IntPtr evR = CreateEvent(IntPtr.Zero, true, false, null);
+            int ovSize = Marshal.SizeOf(typeof(NativeOverlapped));
+            IntPtr pOvW = Marshal.AllocHGlobal(ovSize);
+            IntPtr pOvR = Marshal.AllocHGlobal(ovSize);
+            IntPtr pTx = (tx != null && tx.Length > 0) ? Marshal.AllocHGlobal(tx.Length) : IntPtr.Zero;
+            IntPtr pRx = Marshal.AllocHGlobal(rxLen);
+            try
+            {
+                if (pTx != IntPtr.Zero)
+                {
+                    Marshal.Copy(tx, 0, pTx, tx.Length);
+                    NativeOverlapped ovW = new NativeOverlapped { EventHandle = evW };
+                    Marshal.StructureToPtr(ovW, pOvW, false);
+                    uint wBytes;
+                    if (!WriteFile(hFile, pTx, (uint)tx.Length, out wBytes, pOvW))
+                    {
+                        if (WaitForSingleObject(evW, (uint)Math.Max(80, timeoutMs)) != 0)
+                        {
+                            CancelIo(hFile);
+                            uint dummyW;
+                            GetOverlappedResult(hFile, pOvW, out dummyW, true);
+                            return false;
+                        }
+                    }
+                }
+
+                Stopwatch sw = Stopwatch.StartNew();
+                while (sw.ElapsedMilliseconds < timeoutMs)
+                {
+                    int remaining = (int)(timeoutMs - sw.ElapsedMilliseconds);
+                    if (remaining <= 0) break;
+
+                    ResetEvent(evR);
+                    for (int i = 0; i < rxLen; i++) Marshal.WriteByte(pRx, i, 0);
+                    NativeOverlapped ovR = new NativeOverlapped { EventHandle = evR };
+                    Marshal.StructureToPtr(ovR, pOvR, false);
+
+                    uint rBytes = 0;
+                    bool got = false;
+                    if (ReadFile(hFile, pRx, (uint)rxLen, out rBytes, pOvR))
+                    {
+                        got = rBytes > 0;
+                    }
+                    else
+                    {
+                        uint waitRes = WaitForSingleObject(evR, (uint)remaining);
+                        if (waitRes == 0)
+                        {
+                            if (GetOverlappedResult(hFile, pOvR, out rBytes, false)) got = rBytes > 0;
+                        }
+                        else
+                        {
+                            CancelIo(hFile);
+                            uint dummyR;
+                            GetOverlappedResult(hFile, pOvR, out dummyR, true);
+                            break;
+                        }
+                    }
+
+                    if (got)
+                    {
+                        int copyLen = (int)Math.Min(rBytes, (uint)rxLen);
+                        if (copyLen > 0)
+                        {
+                            byte[] buf = new byte[copyLen];
+                            Marshal.Copy(pRx, buf, 0, copyLen);
+                            int offset = (copyLen > 1 && buf[0] == 0x00) ? 1 : 0;
+                            byte[] payload = new byte[copyLen - offset];
+                            Array.Copy(buf, offset, payload, 0, payload.Length);
+                            if (matcher == null || matcher(payload))
+                            {
+                                rxOut = payload;
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+            finally
+            {
+                if (pTx != IntPtr.Zero) Marshal.FreeHGlobal(pTx);
+                Marshal.FreeHGlobal(pRx);
+                Marshal.FreeHGlobal(pOvW);
+                Marshal.FreeHGlobal(pOvR);
+                if (evW != IntPtr.Zero) CloseHandle(evW);
+                if (evR != IntPtr.Zero) CloseHandle(evR);
+            }
+            return false;
+        }
+
+        private static List<HidCollectionInfo> EnumHidCollections()
+        {
+            List<HidCollectionInfo> list = new List<HidCollectionInfo>();
+            try
+            {
+                Guid hidGuid;
+                HidD_GetHidGuid(out hidGuid);
+                IntPtr hDevInfo = SetupDiGetClassDevs(ref hidGuid, IntPtr.Zero, IntPtr.Zero, 0x12);
+                if (hDevInfo == IntPtr.Zero || hDevInfo == new IntPtr(-1)) return list;
+                try
+                {
+                    DEVPROPKEY containerKey = new DEVPROPKEY { fmtid = new Guid("8C7ED206-3F8A-4827-B3AB-AE9E1FAEFC6C"), pid = 2 };
+                    byte[] cBuf = new byte[16];
+                    int index = 0;
+                    SP_DEVICE_INTERFACE_DATA devData = new SP_DEVICE_INTERFACE_DATA();
+                    devData.cbSize = Marshal.SizeOf(devData);
+                    while (SetupDiEnumDeviceInterfaces(hDevInfo, IntPtr.Zero, ref hidGuid, index, ref devData))
+                    {
+                        index++;
+                        int reqSize;
+                        SetupDiGetDeviceInterfaceDetail(hDevInfo, ref devData, IntPtr.Zero, 0, out reqSize, IntPtr.Zero);
+                        if (reqSize <= 0) continue;
+
+                        IntPtr detailBuf = Marshal.AllocHGlobal(reqSize);
+                        try
+                        {
+                            Marshal.WriteInt32(detailBuf, IntPtr.Size == 8 ? 8 : 6);
+                            SP_DEVINFO_DATA devInfo = new SP_DEVINFO_DATA();
+                            devInfo.cbSize = (uint)Marshal.SizeOf(typeof(SP_DEVINFO_DATA));
+                            if (!SetupDiGetDeviceInterfaceDetail(hDevInfo, ref devData, detailBuf, reqSize, out reqSize, ref devInfo)) continue;
+
+                            string p = Marshal.PtrToStringAuto(new IntPtr(detailBuf.ToInt64() + 4));
+                            if (string.IsNullOrEmpty(p)) continue;
+
+                            Guid cid = Guid.Empty;
+                            uint pType, pReq;
+                            if (SetupDiGetDevicePropertyW(hDevInfo, ref devInfo, ref containerKey, out pType, cBuf, 16, out pReq, 0) && pReq >= 16)
+                            {
+                                cid = new Guid(cBuf);
+                            }
+
+                            IntPtr h = CreateFile(p, 0, 3, IntPtr.Zero, 3, 0, IntPtr.Zero);
+                            if (h == IntPtr.Zero || h == new IntPtr(-1)) continue;
+                            try
+                            {
+                                HIDD_ATTRIBUTES attr = new HIDD_ATTRIBUTES { Size = Marshal.SizeOf(typeof(HIDD_ATTRIBUTES)) };
+                                if (!HidD_GetAttributes(h, ref attr)) continue;
+
+                                IntPtr pp;
+                                if (!HidD_GetPreparsedData(h, out pp) || pp == IntPtr.Zero) continue;
+                                try
+                                {
+                                    HIDP_CAPS caps;
+                                    if (HidP_GetCaps(pp, out caps) == 0x00110000)
+                                    {
+                                        list.Add(new HidCollectionInfo
+                                        {
+                                            Path = p,
+                                            Vid = attr.VendorID,
+                                            Pid = attr.ProductID,
+                                            UsagePage = caps.UsagePage,
+                                            Usage = caps.Usage,
+                                            InLen = caps.InputReportByteLength,
+                                            OutLen = caps.OutputReportByteLength,
+                                            FeatLen = caps.FeatureReportByteLength,
+                                            NumInputValueCaps = caps.NumberInputValueCaps,
+                                            NumFeatureValueCaps = caps.NumberFeatureValueCaps,
+                                            ContainerId = cid
+                                        });
+                                    }
+                                }
+                                finally
+                                {
+                                    HidD_FreePreparsedData(pp);
+                                }
+                            }
+                            finally
+                            {
+                                CloseHandle(h);
+                            }
+                        }
+                        finally
+                        {
+                            Marshal.FreeHGlobal(detailBuf);
+                        }
+                    }
+                }
+                finally
+                {
+                    SetupDiDestroyDeviceInfoList(hDevInfo);
+                }
+            }
+            catch { }
+            return list;
+        }
+
+        private static bool KindFromClassOfDevice(uint cod, bool isEn, out string icon, out string typeLabel)
+        {
+            uint major = (cod >> 8) & 0x1Fu;
+            uint minor = (cod >> 2) & 0x3Fu;
+            if (major == 0x04u)
+            {
+                icon = "🎧";
+                typeLabel = isEn ? "Headset" : "Kulaklık";
+                return true;
+            }
+            if (major == 0x05u)
+            {
+                if ((minor & 0x0Fu) == 0x01u || (minor & 0x0Fu) == 0x02u)
+                {
+                    icon = "🎮";
+                    typeLabel = isEn ? "Controller" : "Kumanda";
+                    return true;
+                }
+                if ((minor >> 4) == 1u)
+                {
+                    icon = "⌨";
+                    typeLabel = isEn ? "Keyboard" : "Klavye";
+                    return true;
+                }
+                if ((minor >> 4) == 2u)
+                {
+                    icon = "🖱";
+                    typeLabel = isEn ? "Mouse" : "Fare";
+                    return true;
+                }
+            }
+            icon = "";
+            typeLabel = "";
+            return false;
         }
 
         public static void ClassifyDeviceTypeAndIcon(string rawName, string devClass, bool isEn, out string icon, out string typeLabel)
@@ -574,202 +1911,497 @@ namespace OpenWidget
             }
         }
 
+        private static int QueryAtkBitmouse(IntPtr hDev, byte cmd, bool isZeroCable)
+        {
+            byte[] req = new byte[64];
+            req[0] = 0x08;
+            req[2] = 0x72;
+            req[3] = 0x02;
+            req[5] = isZeroCable ? (byte)0x00 : (byte)0x01;
+            req[6] = cmd;
+            req[7] = 0x01;
+            if (isZeroCable)
+            {
+                req[1] = 0x7D;
+            }
+            else
+            {
+                int sum = 0;
+                for (int i = 2; i < req.Length; i++) sum += req[i];
+                req[1] = (byte)(sum & 0xFF);
+            }
+            byte[] rx;
+            if (OverlappedHidReadWithRetry(hDev, req, 64, out rx, r =>
+                r.Length >= 8 && r[0] == 0x08 && r[1] == 0x72 && r[5] == cmd && (!isZeroCable || r[6] == 0x01), 600))
+            {
+                if (isZeroCable ? (rx[2] != 0x00) : (rx[2] == 0xFF)) return -1;
+                return rx[7];
+            }
+            return -1;
+        }
+
+        public static string ResolveGenericDongleFriendlyName(ushort vid, string cleanedUsbName, Guid containerId, IEnumerable<string> knownPnpNames)
+        {
+            string trimmed = (cleanedUsbName ?? "").Trim();
+            bool isGeneric = string.IsNullOrEmpty(trimmed) || Regex.IsMatch(
+                trimmed,
+                @"(?i)^(?:nk\s*mouse(?:\s*nano)?|wireless\s*mouse|2\.4g(?:\s*wireless)?(?:\s*mouse)?|usb\s*receiver|gaming\s*mouse|atk\s*(?:wireless\s*)?(?:dongle|mouse)|vgn\s*dongle)$");
+            if (!isGeneric) return trimmed;
+
+            if (vid == 0x373B || vid == 0x3554)
+            {
+                if (knownPnpNames != null)
+                {
+                    foreach (string rawCandidate in knownPnpNames)
+                    {
+                        if (string.IsNullOrWhiteSpace(rawCandidate)) continue;
+                        string cand = StripAudioProfileSuffixes(rawCandidate);
+                        string lc = cand.ToLowerInvariant();
+                        if (lc.Contains("headset") || lc.Contains("headphone") || lc.Contains("kulaklık") ||
+                            lc.Contains("keyboard") || lc.Contains("klavye") || lc.Contains("arctis") || lc.Contains("jbl"))
+                            continue;
+                        if (lc.Contains("nearlink") || lc.Contains("atk") || lc.Contains("vxe") || lc.Contains("vgn"))
+                            return cand;
+                    }
+                }
+                if (trimmed.IndexOf("nk mouse", StringComparison.OrdinalIgnoreCase) >= 0)
+                    return "ATK NearLink Mouse";
+                if (vid == 0x373B)
+                    return "ATK Wireless Mouse";
+            }
+            return string.IsNullOrEmpty(trimmed) ? "Wireless Mouse" : trimmed;
+        }
+
+        private static List<string> CollectKnownWirelessPnpNames()
+        {
+            List<string> names = new List<string>();
+            HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            Action<string> addName = (n) =>
+            {
+                if (string.IsNullOrWhiteSpace(n)) return;
+                string s = StripAudioProfileSuffixes(n);
+                if (!string.IsNullOrEmpty(s) && !IsGenericBluetoothNodeName(s) && seen.Add(s))
+                    names.Add(s);
+            };
+
+            try
+            {
+                Dictionary<string, bool> btMac, btName;
+                QueryClassicBluetoothStates(out btMac, out btName);
+                foreach (string k in btName.Keys) addName(k);
+            }
+            catch { }
+
+            try
+            {
+                IntPtr hPnp = SetupDiGetClassDevsAll(IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, 0x04);
+                if (hPnp != IntPtr.Zero && hPnp != new IntPtr(-1))
+                {
+                    try
+                    {
+                        SP_DEVINFO_DATA devInfo = new SP_DEVINFO_DATA { cbSize = (uint)Marshal.SizeOf(typeof(SP_DEVINFO_DATA)) };
+                        StringBuilder sbInst = new StringBuilder(256);
+                        StringBuilder sbName = new StringBuilder(256);
+                        uint idx = 0;
+                        while (SetupDiEnumDeviceInfo(hPnp, idx, ref devInfo))
+                        {
+                            idx++;
+                            sbInst.Clear();
+                            int req;
+                            SetupDiGetDeviceInstanceIdW(hPnp, ref devInfo, sbInst, sbInst.Capacity, out req);
+                            string id = sbInst.ToString();
+                            if (!id.StartsWith("BTH", StringComparison.OrdinalIgnoreCase) &&
+                                id.IndexOf("VID_373B", StringComparison.OrdinalIgnoreCase) < 0 &&
+                                id.IndexOf("VID_3554", StringComparison.OrdinalIgnoreCase) < 0)
+                                continue;
+
+                            sbName.Clear();
+                            uint rType, rReq;
+                            if (SetupDiGetDeviceRegistryProperty(hPnp, ref devInfo, 0x0C, out rType, sbName, (uint)sbName.Capacity, out rReq) && sbName.Length > 0)
+                            {
+                                addName(sbName.ToString());
+                            }
+                        }
+                    }
+                    finally { SetupDiDestroyDeviceInfoList(hPnp); }
+                }
+            }
+            catch { }
+            return names;
+        }
+
+        private static bool IsGenericHidBatteryUsage(ushort page, ushort usage)
+        {
+            return (page == 0x06 && usage == 0x20) || (page == 0x85 && usage == 0x65);
+        }
+
         public static List<WirelessDeviceReading> ScanActiveWirelessDevices(bool isEn, Dictionary<string, int> lastKnownPcts, Dictionary<string, string> lastKnownHz)
         {
             List<WirelessDeviceReading> results = new List<WirelessDeviceReading>();
             HashSet<string> addedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            HashSet<uint> claimedVidPids = new HashSet<uint>();
+            HashSet<Guid> claimedContainers = new HashSet<Guid>();
 
-            // 1. Scan Direct USB HID Vendor Wireless Dongles (CompX 4K/8K Mice & Keyboards, HyperX Wireless Headsets)
-            try
+            Func<ushort, ushort, uint> vpKey = (v, p) => ((uint)v << 16) | p;
+            Action<ushort, ushort, Guid> claimDev = (v, p, cid) =>
             {
-                Guid hidGuid;
-                HidD_GetHidGuid(out hidGuid);
-                IntPtr hDevInfo = SetupDiGetClassDevs(ref hidGuid, IntPtr.Zero, IntPtr.Zero, 0x12);
-                if (hDevInfo != IntPtr.Zero && hDevInfo != new IntPtr(-1))
+                claimedVidPids.Add(vpKey(v, p));
+                if (cid != Guid.Empty) claimedContainers.Add(cid);
+            };
+
+            List<HidCollectionInfo> colls = EnumHidCollections();
+            List<string> knownPnpNames = CollectKnownWirelessPnpNames();
+
+            // 1A. ATK NearLink BITMOUSE (373B:1216/124C/1154/124F/1155) & 8K Nano Dongle (373B:1178)
+            foreach (HidCollectionInfo c in colls)
+            {
+                if (c.Vid != 0x373B) continue;
+                bool isBitmouse = (c.Pid == 0x1216 || c.Pid == 0x124C || c.Pid == 0x1154 || c.Pid == 0x124F || c.Pid == 0x1155);
+                if (isBitmouse && c.UsagePage == 0xFF05 && c.Usage == 0x0001 && c.OutLen == 64 && c.InLen == 64 && !claimedVidPids.Contains(vpKey(c.Vid, c.Pid)))
                 {
-                    try
+                    claimDev(c.Vid, c.Pid, c.ContainerId);
+                    IntPtr hDev = CreateFile(c.Path, 0xC0000000U, 3, IntPtr.Zero, 3, 0x40000000U, IntPtr.Zero);
+                    if (hDev != IntPtr.Zero && hDev != new IntPtr(-1))
                     {
-                        int index = 0;
-                        SP_DEVICE_INTERFACE_DATA devData = new SP_DEVICE_INTERFACE_DATA();
-                        devData.cbSize = Marshal.SizeOf(devData);
-                        while (SetupDiEnumDeviceInterfaces(hDevInfo, IntPtr.Zero, ref hidGuid, index, ref devData))
+                        try
                         {
-                            int reqSize;
-                            SetupDiGetDeviceInterfaceDetail(hDevInfo, ref devData, IntPtr.Zero, 0, out reqSize, IntPtr.Zero);
-                            if (reqSize > 0)
+                            bool isZero = (c.Pid == 0x1154 || c.Pid == 0x124F || c.Pid == 0x1155);
+                            bool isZeroCable = (c.Pid == 0x1154);
+                            int level = QueryAtkBitmouse(hDev, 0x07, isZeroCable);
+                            if (level >= 1 && level <= 100)
                             {
-                                IntPtr detailBuf = Marshal.AllocHGlobal(reqSize);
-                                try
+                                bool isCharging = isZero
+                                    ? (isZeroCable && QueryAtkBitmouse(hDev, 0x08, true) == 0x02)
+                                    : (c.Pid == 0x124C || QueryAtkBitmouse(hDev, 0x0F, false) == 1);
+
+                                string rawProd = ReadUsbProductName(c.Path, isZero ? "ATK Zero" : "ATK Wireless Mouse");
+                                string cleanName = Regex.Replace(rawProd, "(?i)\\s*(8k|4k|1k)?\\s*(nano|wireless)?\\s*(dongle|receiver)", "").Trim();
+                                cleanName = ResolveGenericDongleFriendlyName(c.Vid, cleanName, c.ContainerId, knownPnpNames);
+
+                                string icon, typeLabel;
+                                ClassifyDeviceTypeAndIcon(cleanName, "Mouse", isEn, out icon, out typeLabel);
+                                string proto = (c.Pid == 0x124C || isZeroCable) ? "USB" : "2.4GHz";
+                                string det = isCharging
+                                    ? (typeLabel + " • " + (isEn ? "⚡ Charging" : "⚡ Şarjda"))
+                                    : (typeLabel + " • " + proto);
+
+                                string idKey = "HID_373B_" + c.Pid.ToString("X4");
+                                results.Add(new WirelessDeviceReading
                                 {
-                                    Marshal.WriteInt32(detailBuf, IntPtr.Size == 8 ? 8 : 6);
-                                    if (SetupDiGetDeviceInterfaceDetail(hDevInfo, ref devData, detailBuf, reqSize, out reqSize, IntPtr.Zero))
+                                    IdKey = idKey,
+                                    Icon = icon,
+                                    Name = cleanName,
+                                    Detail = det,
+                                    PctText = isEn ? (level + "%") : ("%" + level),
+                                    BarPct = level,
+                                    IsCharging = isCharging
+                                });
+                                addedNames.Add(cleanName);
+                            }
+                        }
+                        finally { CloseHandle(hDev); }
+                    }
+                }
+                else if (c.Pid == 0x1178 && c.UsagePage == 0xFF10 && c.Usage == 0x0001 && c.FeatLen >= 9 && c.InLen >= 11 && !claimedVidPids.Contains(vpKey(c.Vid, c.Pid)))
+                {
+                    claimDev(c.Vid, c.Pid, c.ContainerId);
+                    IntPtr hDev = CreateFile(c.Path, 0xC0000000U, 3, IntPtr.Zero, 3, 0x40000000U, IntPtr.Zero);
+                    if (hDev != IntPtr.Zero && hDev != new IntPtr(-1))
+                    {
+                        try
+                        {
+                            byte[] feat = new byte[c.FeatLen];
+                            feat[0] = 0x00;
+                            feat[1] = 0x82;
+                            if (HidD_SetFeature(hDev, feat, (uint)feat.Length))
+                            {
+                                byte[] rx;
+                                if (OverlappedHidReadWithRetry(hDev, null, c.InLen, out rx, r => r.Length >= 10 && r[0] == 0x82, 600) && rx[9] != 0)
+                                {
+                                    int level = rx[8] & 0x7F;
+                                    bool isCharging = (rx[8] & 0x80) != 0;
+                                    if (level >= 1 && level <= 100)
                                     {
-                                        string p = Marshal.PtrToStringAuto(new IntPtr(detailBuf.ToInt64() + 4));
-                                        if (p != null)
+                                        string rawProd = ReadUsbProductName(c.Path, "ATK 8K Mouse");
+                                        string cleanName = Regex.Replace(rawProd, "(?i)\\s*(8k|4k|1k)?\\s*(nano|wireless)?\\s*(dongle|receiver)", "").Trim();
+                                        cleanName = ResolveGenericDongleFriendlyName(c.Vid, cleanName, c.ContainerId, knownPnpNames);
+
+                                        string icon, typeLabel;
+                                        ClassifyDeviceTypeAndIcon(cleanName, "Mouse", isEn, out icon, out typeLabel);
+                                        results.Add(new WirelessDeviceReading
                                         {
-                                            // A) CompX 4K/8K Wireless Mouse/Keyboard Protocol (VID_3554, Col05, Report 0x08)
-                                            if (p.IndexOf("vid_3554&pid_f5", StringComparison.OrdinalIgnoreCase) >= 0 &&
-                                                p.IndexOf("&col05", StringComparison.OrdinalIgnoreCase) >= 0)
-                                            {
-                                                string rawProd = ReadUsbProductName(p, "Wireless Mouse");
-                                                string cleanName = rawProd;
-                                                if (p.IndexOf("pid_f5f7", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                                                    rawProd.IndexOf("SCYROX", StringComparison.OrdinalIgnoreCase) >= 0)
-                                                {
-                                                    cleanName = "Scyrox V8";
-                                                }
-                                                else
-                                                {
-                                                    cleanName = Regex.Replace(rawProd, "(?i)\\s*(8k|4k|1k)?\\s*(wireless)?\\s*(dongle|receiver)", "").Trim();
-                                                    if (string.IsNullOrEmpty(cleanName)) cleanName = rawProd;
-                                                }
-
-                                                string icon, typeLabel;
-                                                ClassifyDeviceTypeAndIcon(cleanName, "Mouse", isEn, out icon, out typeLabel);
-
-                                                IntPtr hDev = CreateFile(p, 0xC0000000U, 3, IntPtr.Zero, 3, 0x40000000U, IntPtr.Zero);
-                                                if (hDev != IntPtr.Zero && hDev != new IntPtr(-1))
-                                                {
-                                                    try
-                                                    {
-                                                        string hzText = lastKnownHz.ContainsKey(p) ? lastKnownHz[p] : "1000 Hz";
-                                                        byte[] txHz = new byte[17];
-                                                        txHz[0] = 0x08; txHz[1] = 0x08; txHz[3] = 0x00; txHz[4] = 0x00; txHz[5] = 0x02; txHz[16] = 0x43;
-                                                        byte[] rxHz;
-                                                        if (OverlappedHidQuery(hDev, txHz, out rxHz, 17, 100) && rxHz[0] == 0x08 && rxHz[1] == 0x08)
-                                                        {
-                                                            byte rc = rxHz[6];
-                                                            if (rc == 0x01) hzText = "1000 Hz";
-                                                            else if (rc == 0x02) hzText = "500 Hz";
-                                                            else if (rc == 0x04) hzText = "250 Hz";
-                                                            else if (rc == 0x08) hzText = "125 Hz";
-                                                            else if (rc == 0x10) hzText = "2000 Hz";
-                                                            else if (rc == 0x20) hzText = "4000 Hz";
-                                                            else if (rc == 0x40) hzText = "8000 Hz";
-                                                            lastKnownHz[p] = hzText;
-                                                        }
-
-                                                        byte[] txBat = new byte[17];
-                                                        txBat[0] = 0x08; txBat[1] = 0x04; txBat[16] = 0x49;
-                                                        byte[] rxBat;
-                                                        int pct = 0;
-                                                        bool charging = false;
-                                                        int mv = 0;
-                                                        if (OverlappedHidQuery(hDev, txBat, out rxBat, 17, 120) && rxBat[0] == 0x08 && rxBat[1] == 0x04)
-                                                        {
-                                                            pct = rxBat[6];
-                                                            charging = rxBat[7] == 1;
-                                                            mv = (rxBat[8] << 8) | rxBat[9];
-                                                        }
-
-                                                        if (pct > 0 && pct <= 100)
-                                                        {
-                                                            lastKnownPcts[p] = pct;
-                                                            string det = charging
-                                                                ? (hzText + " • " + (isEn ? "⚡ Charging" : "⚡ Şarjda"))
-                                                                : (mv > 3000 && mv < 4500 ? string.Format("{0} • {1:0.00}V", hzText, mv / 1000.0) : (hzText + " • " + typeLabel));
-                                                            results.Add(new WirelessDeviceReading
-                                                            {
-                                                                IdKey = p,
-                                                                Icon = icon,
-                                                                Name = cleanName,
-                                                                Detail = det,
-                                                                PctText = isEn ? (pct + "%") : ("%" + pct),
-                                                                BarPct = pct
-                                                            });
-                                                            addedNames.Add(cleanName);
-                                                        }
-                                                        else if (lastKnownPcts.ContainsKey(p) && lastKnownPcts[p] > 0)
-                                                        {
-                                                            int lastPct = lastKnownPcts[p];
-                                                            results.Add(new WirelessDeviceReading
-                                                            {
-                                                                IdKey = p,
-                                                                Icon = icon,
-                                                                Name = cleanName,
-                                                                Detail = hzText + " • " + (isEn ? "Sleep" : "Uyku"),
-                                                                PctText = isEn ? (lastPct + "%") : ("%" + lastPct),
-                                                                BarPct = lastPct
-                                                            });
-                                                            addedNames.Add(cleanName);
-                                                        }
-                                                    }
-                                                    finally
-                                                    {
-                                                        CloseHandle(hDev);
-                                                    }
-                                                }
-                                            }
-                                            // B) HyperX / HP Wireless Headsets (VID_03F0 or VID_0951, MI_03 Col01, Report 0x66)
-                                            else if ((p.IndexOf("vid_03f0&pid_05b7", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                                                      p.IndexOf("vid_03f0&pid_09", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                                                      p.IndexOf("vid_0951&pid_17", StringComparison.OrdinalIgnoreCase) >= 0) &&
-                                                     p.IndexOf("&mi_03&col01", StringComparison.OrdinalIgnoreCase) >= 0)
-                                            {
-                                                string rawProd = ReadUsbProductName(p, "HyperX Wireless");
-                                                string cleanName = Regex.Replace(rawProd, "(?i)\\s*wireless\\s*$", "").Trim();
-                                                if (string.IsNullOrEmpty(cleanName)) cleanName = rawProd;
-
-                                                IntPtr hHeadset = CreateFile(p, 0xC0000000U, 3, IntPtr.Zero, 3, 0x40000000U, IntPtr.Zero);
-                                                if (hHeadset != IntPtr.Zero && hHeadset != new IntPtr(-1))
-                                                {
-                                                    try
-                                                    {
-                                                        byte[] tx = new byte[62];
-                                                        tx[0] = 0x66; tx[1] = 0x89;
-                                                        byte[] rx;
-                                                        if (OverlappedHidQuery(hHeadset, tx, out rx, 62, 120) && rx[0] == 0x66 && rx[1] == 0x89)
-                                                        {
-                                                            int pct = (rx[4] > 0 && rx[4] <= 100) ? (int)rx[4] : ((rx[3] > 0 && rx[3] <= 100) ? (int)rx[3] : 0);
-                                                            if (pct > 0)
-                                                            {
-                                                                bool isCharging = false;
-                                                                byte[] txChg = new byte[62];
-                                                                txChg[0] = 0x66; txChg[1] = 0x8A;
-                                                                byte[] rxChg;
-                                                                if (OverlappedHidQuery(hHeadset, txChg, out rxChg, 62, 100) && rxChg[0] == 0x66 && rxChg[1] == 0x8A)
-                                                                {
-                                                                    if (rxChg[4] == 1 || rxChg[3] == 1) isCharging = true;
-                                                                }
-                                                                results.Add(new WirelessDeviceReading
-                                                                {
-                                                                    IdKey = p,
-                                                                    Icon = "🎧",
-                                                                    Name = cleanName,
-                                                                    Detail = isCharging ? (isEn ? "Headset • ⚡ Charging" : "Kulaklık • ⚡ Şarjda") : (isEn ? "Headset • 2.4GHz" : "Kulaklık • 2.4GHz"),
-                                                                    PctText = isEn ? (pct + "%") : ("%" + pct),
-                                                                    BarPct = pct
-                                                                });
-                                                                addedNames.Add(cleanName);
-                                                            }
-                                                        }
-                                                    }
-                                                    finally
-                                                    {
-                                                        CloseHandle(hHeadset);
-                                                    }
-                                                }
-                                            }
-                                        }
+                                            IdKey = "HID_373B_1178",
+                                            Icon = icon,
+                                            Name = cleanName,
+                                            Detail = isCharging ? (typeLabel + " • " + (isEn ? "⚡ Charging" : "⚡ Şarjda")) : (typeLabel + " • 2.4GHz"),
+                                            PctText = isEn ? (level + "%") : ("%" + level),
+                                            BarPct = level,
+                                            IsCharging = isCharging
+                                        });
+                                        addedNames.Add(cleanName);
                                     }
                                 }
-                                finally
-                                {
-                                    Marshal.FreeHGlobal(detailBuf);
-                                }
                             }
-                            index++;
                         }
-                    }
-                    finally
-                    {
-                        SetupDiDestroyDeviceInfoList(hDevInfo);
+                        finally { CloseHandle(hDev); }
                     }
                 }
             }
-            catch { }
 
-            // 2. Scan Windows Native PnP / Bluetooth / BLE / Dongle Battery Devices (Two-Pass + Strict Connection Filtering)
+            // 1B. CompX 17-byte Wireless Mice (Scyrox, VXE, ATK, Kysona, Pulsar, Redragon)
+            foreach (HidCollectionInfo c in colls)
+            {
+                bool isCompxVendor = (c.Vid == 0x3554 || c.Vid == 0x373B || c.Vid == 0x3710 || c.Vid == 0x3770 || c.Vid == 0x33E4 || c.Vid == 0x35BB);
+                if (!isCompxVendor) continue;
+                if (claimedVidPids.Contains(vpKey(c.Vid, c.Pid))) continue;
+                if (c.Vid == 0x373B && (c.Pid == 0x11CA || c.Pid == 0x11CB || c.Pid == 0x1203 || c.Pid == 0x1204 || c.Pid == 0x1178)) continue;
+                if (c.Vid == 0x3554 && c.Pid == 0xFA09) continue;
+
+                bool isCompxColl = (c.OutLen == 17 && c.InLen == 17 &&
+                    ((c.UsagePage == 0xFF02 && c.Usage == 0x0002) ||
+                     (c.Vid == 0x3554 && c.Path.IndexOf("&col05", StringComparison.OrdinalIgnoreCase) >= 0)));
+                if (!isCompxColl) continue;
+
+                claimDev(c.Vid, c.Pid, c.ContainerId);
+                string rawProd = ReadUsbProductName(c.Path, c.Vid == 0x373B ? "ATK Wireless Mouse" : "Wireless Mouse");
+                string cleanName = rawProd;
+                if ((c.Vid == 0x3554 && c.Pid == 0xF5F7) || rawProd.IndexOf("SCYROX", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    cleanName = "Scyrox V8";
+                }
+                else
+                {
+                    cleanName = Regex.Replace(rawProd, "(?i)\\s*(8k|4k|1k)?\\s*(wireless)?\\s*(dongle|receiver)", "").Trim();
+                    cleanName = ResolveGenericDongleFriendlyName(c.Vid, cleanName, c.ContainerId, knownPnpNames);
+                }
+
+                string icon, typeLabel;
+                ClassifyDeviceTypeAndIcon(cleanName, "Mouse", isEn, out icon, out typeLabel);
+
+                IntPtr hDev = CreateFile(c.Path, 0xC0000000U, 3, IntPtr.Zero, 3, 0x40000000U, IntPtr.Zero);
+                if (hDev != IntPtr.Zero && hDev != new IntPtr(-1))
+                {
+                    try
+                    {
+                        string hzText = lastKnownHz.ContainsKey(c.Path) ? lastKnownHz[c.Path] : "1000 Hz";
+                        byte[] txHz = new byte[17];
+                        txHz[0] = 0x08; txHz[1] = 0x08; txHz[5] = 0x02; txHz[16] = 0x43;
+                        byte[] rxHz;
+                        if (OverlappedHidQuery(hDev, txHz, out rxHz, 17, 100) && rxHz[0] == 0x08 && rxHz[1] == 0x08)
+                        {
+                            byte rc = rxHz[6];
+                            if (rc == 0x01) hzText = "1000 Hz";
+                            else if (rc == 0x02) hzText = "500 Hz";
+                            else if (rc == 0x04) hzText = "250 Hz";
+                            else if (rc == 0x08) hzText = "125 Hz";
+                            else if (rc == 0x10) hzText = "2000 Hz";
+                            else if (rc == 0x20) hzText = "4000 Hz";
+                            else if (rc == 0x40) hzText = "8000 Hz";
+                            lastKnownHz[c.Path] = hzText;
+                        }
+
+                        byte[] txBat = new byte[17];
+                        txBat[0] = 0x08; txBat[1] = 0x04; txBat[16] = 0x49;
+                        byte[] rxBat;
+                        int pct = 0;
+                        bool charging = false;
+                        int mv = 0;
+                        if (OverlappedHidQuery(hDev, txBat, out rxBat, 17, 130) && rxBat[0] == 0x08 && rxBat[1] == 0x04)
+                        {
+                            pct = rxBat[6];
+                            charging = rxBat[7] == 1;
+                            mv = (rxBat[8] << 8) | rxBat[9];
+                        }
+
+                        if (pct > 0 && pct <= 100)
+                        {
+                            lastKnownPcts[c.Path] = pct;
+                            string det = charging
+                                ? (hzText + " • " + (isEn ? "⚡ Charging" : "⚡ Şarjda"))
+                                : (mv > 3000 && mv < 4500 ? string.Format("{0} • {1:0.00}V", hzText, mv / 1000.0) : (hzText + " • 2.4GHz"));
+                            results.Add(new WirelessDeviceReading
+                            {
+                                IdKey = c.Path,
+                                Icon = icon,
+                                Name = cleanName,
+                                Detail = det,
+                                PctText = isEn ? (pct + "%") : ("%" + pct),
+                                BarPct = pct,
+                                IsCharging = charging
+                            });
+                            addedNames.Add(cleanName);
+                        }
+                        else if (lastKnownPcts.ContainsKey(c.Path) && lastKnownPcts[c.Path] > 0)
+                        {
+                            int lastPct = lastKnownPcts[c.Path];
+                            results.Add(new WirelessDeviceReading
+                            {
+                                IdKey = c.Path,
+                                Icon = icon,
+                                Name = cleanName,
+                                Detail = hzText + " • " + (isEn ? "Sleep" : "Uyku"),
+                                PctText = isEn ? (lastPct + "%") : ("%" + lastPct),
+                                BarPct = lastPct,
+                                IsCharging = false,
+                                IsAsleep = true
+                            });
+                            addedNames.Add(cleanName);
+                        }
+                    }
+                    finally { CloseHandle(hDev); }
+                }
+            }
+
+            // 1C. SteelSeries Wireless Headsets (VID 1038) via Direct HID 2.4GHz Dongle
+            foreach (HidCollectionInfo c in colls)
+            {
+                if (c.Vid != 0x1038 || claimedVidPids.Contains(vpKey(c.Vid, c.Pid))) continue;
+                bool isNovaColl = (c.UsagePage == 0xFFC0 && c.Usage == 0x0001 && c.OutLen > 0 && c.InLen >= 7);
+                bool isArctisColl = (c.UsagePage == 0xFF43 && c.Usage == 0x0202 && c.OutLen > 0 && c.InLen >= 4);
+                if (!isNovaColl && !isArctisColl) continue;
+
+                IntPtr hSs = CreateFile(c.Path, 0xC0000000U, 3, IntPtr.Zero, 3, 0x40000000U, IntPtr.Zero);
+                if (hSs == IntPtr.Zero || hSs == new IntPtr(-1)) continue;
+                try
+                {
+                    int pct = 0;
+                    bool charging = false;
+                    bool connected = false;
+                    string cleanName = Regex.Replace(ReadUsbProductName(c.Path, "SteelSeries Headset"), "(?i)\\s*(dongle|receiver|transmitter)", "").Trim();
+                    if (string.IsNullOrEmpty(cleanName)) cleanName = "SteelSeries Headset";
+
+                    if (isNovaColl)
+                    {
+                        byte[] tx = new byte[c.OutLen];
+                        tx[0] = 0x00;
+                        tx[1] = 0xB0;
+                        byte[] rx;
+                        if (OverlappedHidReadWithRetry(hSs, tx, c.InLen, out rx, r => r.Length >= 7 && r[0] == 0xB0, 500))
+                        {
+                            if (c.Pid == 0x220E || c.Pid == 0x2212 || c.Pid == 0x2216 || c.Pid == 0x2236)
+                            {
+                                connected = rx[1] != 0x01;
+                                pct = Math.Max(0, Math.Min(100, (int)Math.Round(rx[2] * 25.0)));
+                                charging = rx[3] == 0x01;
+                            }
+                            else if (c.Pid == 0x2232 || c.Pid == 0x2253 || c.Pid == 0x2255 || c.Pid == 0x2269 || c.Pid == 0x226D ||
+                                     cleanName.IndexOf("Nova 5", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                     cleanName.IndexOf("Nova 3", StringComparison.OrdinalIgnoreCase) >= 0)
+                            {
+                                connected = rx[1] != 0x02;
+                                pct = Math.Max(0, Math.Min(100, (int)rx[3]));
+                                charging = rx[4] == 0x01;
+                                if (cleanName.Equals("SteelSeries Headset", StringComparison.OrdinalIgnoreCase))
+                                    cleanName = (c.Pid == 0x2232 || c.Pid == 0x2253 || c.Pid == 0x2255) ? "SteelSeries Arctis Nova 5" : "SteelSeries Arctis Nova 3P";
+                            }
+                            else
+                            {
+                                bool discrete = (c.Pid == 0x2202 || c.Pid == 0x2206 || c.Pid == 0x220A || c.Pid == 0x223A || c.Pid == 0x227A || c.Pid == 0x22A4);
+                                connected = rx[3] != 0x00;
+                                charging = (rx[3] == 0x01 || rx[3] == 0x02);
+                                pct = Math.Max(0, Math.Min(100, discrete ? (int)Math.Round(rx[2] * 25.0) : (int)rx[2]));
+                            }
+                        }
+                    }
+                    else if (isArctisColl)
+                    {
+                        bool isA1 = (c.Pid == 0x12B3 || c.Pid == 0x12B6 || c.Pid == 0x12D7);
+                        bool isA7 = (c.Pid == 0x1260 || c.Pid == 0x12AD || c.Pid == 0x1252);
+                        if (isA1 || isA7)
+                        {
+                            byte[] tx = new byte[c.OutLen];
+                            tx[0] = 0x06;
+                            tx[1] = isA1 ? (byte)0x12 : (byte)0x18;
+                            byte[] rx;
+                            if (OverlappedHidReadWithRetry(hSs, tx, c.InLen, out rx, r => r.Length >= 4, 500))
+                            {
+                                if (isA1) { connected = rx[2] != 0x01; pct = rx[3]; }
+                                else { pct = rx[2]; connected = pct > 0; }
+                            }
+                        }
+                    }
+
+                    claimDev(c.Vid, c.Pid, c.ContainerId);
+                    if (connected && pct > 0 && pct <= 100 && !addedNames.Contains(cleanName))
+                    {
+                        results.Add(new WirelessDeviceReading
+                        {
+                            IdKey = "HID_1038_" + c.Pid.ToString("X4"),
+                            Icon = "🎧",
+                            Name = cleanName,
+                            Detail = charging ? (isEn ? "Headset • ⚡ Charging" : "Kulaklık • ⚡ Şarjda") : (isEn ? "Headset • 2.4GHz" : "Kulaklık • 2.4GHz"),
+                            PctText = isEn ? (pct + "%") : ("%" + pct),
+                            BarPct = pct,
+                            IsCharging = charging
+                        });
+                        addedNames.Add(cleanName);
+                    }
+                }
+                finally { CloseHandle(hSs); }
+            }
+
+            // 1D. HyperX / HP Wireless Headsets (VID 03F0 / 0951, MI_03 Col01, Report 0x66)
+            foreach (HidCollectionInfo c in colls)
+            {
+                if (!((c.Vid == 0x03F0 && (c.Pid == 0x05B7 || (c.Pid & 0xFF00) == 0x0900)) ||
+                      (c.Vid == 0x0951 && (c.Pid & 0xFF00) == 0x1700))) continue;
+                if (c.Path.IndexOf("&mi_03&col01", StringComparison.OrdinalIgnoreCase) < 0) continue;
+                if (claimedVidPids.Contains(vpKey(c.Vid, c.Pid))) continue;
+
+                claimDev(c.Vid, c.Pid, c.ContainerId);
+                string rawProd = ReadUsbProductName(c.Path, "HyperX Wireless");
+                string cleanName = Regex.Replace(rawProd, "(?i)\\s*wireless\\s*$", "").Trim();
+                if (string.IsNullOrEmpty(cleanName)) cleanName = rawProd;
+
+                IntPtr hHeadset = CreateFile(c.Path, 0xC0000000U, 3, IntPtr.Zero, 3, 0x40000000U, IntPtr.Zero);
+                if (hHeadset != IntPtr.Zero && hHeadset != new IntPtr(-1))
+                {
+                    try
+                    {
+                        byte[] tx = new byte[62];
+                        tx[0] = 0x66; tx[1] = 0x89;
+                        byte[] rx;
+                        if (OverlappedHidQuery(hHeadset, tx, out rx, 62, 120) && rx[0] == 0x66 && rx[1] == 0x89)
+                        {
+                            int pct = (rx[4] > 0 && rx[4] <= 100) ? (int)rx[4] : ((rx[3] > 0 && rx[3] <= 100) ? (int)rx[3] : 0);
+                            if (pct > 0)
+                            {
+                                bool isCharging = false;
+                                byte[] txChg = new byte[62];
+                                txChg[0] = 0x66; txChg[1] = 0x8A;
+                                byte[] rxChg;
+                                if (OverlappedHidQuery(hHeadset, txChg, out rxChg, 62, 100) && rxChg[0] == 0x66 && rxChg[1] == 0x8A)
+                                {
+                                    if (rxChg[4] == 1 || rxChg[3] == 1) isCharging = true;
+                                }
+                                results.Add(new WirelessDeviceReading
+                                {
+                                    IdKey = c.Path,
+                                    Icon = "🎧",
+                                    Name = cleanName,
+                                    Detail = isCharging ? (isEn ? "Headset • ⚡ Charging" : "Kulaklık • ⚡ Şarjda") : (isEn ? "Headset • 2.4GHz" : "Kulaklık • 2.4GHz"),
+                                    PctText = isEn ? (pct + "%") : ("%" + pct),
+                                    BarPct = pct,
+                                    IsCharging = isCharging
+                                });
+                                addedNames.Add(cleanName);
+                            }
+                        }
+                    }
+                    finally { CloseHandle(hHeadset); }
+                }
+            }
+
+            // 1E. Logitech HID++ 2.0 / 1.0 (VID 046D — Unifying, Bolt, LIGHTSPEED, Wired/BT, G Headsets)
+            try { PollLogitechHidpp(colls, isEn, claimedVidPids, claimDev, lastKnownPcts, addedNames, results); } catch { }
+
+            // 1F. Razer Wireless (VID 1532 — 90-byte Feature Report HyperSpeed/Mice/Keyboards + BlackShark V2 HyperSpeed)
+            try { PollRazerHid(colls, isEn, claimedVidPids, claimDev, lastKnownPcts, addedNames, results); } catch { }
+
+            // 1G. Corsair Wireless (VID 1B1C — Void/HS70/HS80, CompX Sabre V2, Bragi/Slipstream)
+            try { PollCorsairHid(colls, isEn, claimedVidPids, claimDev, addedNames, results); } catch { }
+
+            // 2. Scan Windows Native PnP / Bluetooth / BLE / Dongle Battery Devices (generic.cpp PollBluetooth logic)
             try
             {
                 Dictionary<string, bool> btConnByMac;
@@ -785,14 +2417,14 @@ namespace OpenWidget
                         devInfo.cbSize = (uint)Marshal.SizeOf(typeof(SP_DEVINFO_DATA));
                         DEVPROPKEY batKey = new DEVPROPKEY { fmtid = new Guid("104EA319-6EE2-4701-BD47-8DDBF425BBE5"), pid = 2 };
                         DEVPROPKEY isConnKey = new DEVPROPKEY { fmtid = new Guid("83DA6326-97A6-4088-9453-A1923F573B29"), pid = 15 };
-                        DEVPROPKEY isPresentKey = new DEVPROPKEY { fmtid = new Guid("540B947E-8B40-45BC-A8A2-6A0B894CBDA2"), pid = 5 };
                         DEVPROPKEY containerKey = new DEVPROPKEY { fmtid = new Guid("8C7ED206-3F8A-4827-B3AB-AE9E1FAEFC6C"), pid = 2 };
                         DEVPROPKEY hwIdsKey = new DEVPROPKEY { fmtid = new Guid("A45C254E-DF1C-4EFD-8020-67D146A850E0"), pid = 3 };
+                        DEVPROPKEY codKey = new DEVPROPKEY { fmtid = new Guid("2BD67D8B-8BEB-48D5-87E0-6CDA3428040A"), pid = 10 };
 
-                        List<PnpBatteryCandidate> candidates = new List<PnpBatteryCandidate>();
-                        HashSet<Guid> containerAnyConnected = new HashSet<Guid>();
-                        Dictionary<Guid, bool> containerPrimaryBtConnected = new Dictionary<Guid, bool>();
+                        Dictionary<string, PnpBatteryCandidate> byContainer = new Dictionary<string, PnpBatteryCandidate>(StringComparer.OrdinalIgnoreCase);
+                        Dictionary<Guid, bool> containerConn = new Dictionary<Guid, bool>();
                         Dictionary<Guid, string> containerBaseNames = new Dictionary<Guid, string>();
+                        Dictionary<Guid, uint> containerCod = new Dictionary<Guid, uint>();
 
                         byte[] propBuf = new byte[1024];
                         StringBuilder sbInst = new StringBuilder(512);
@@ -819,18 +2451,6 @@ namespace OpenWidget
                                 containerId = new Guid(gBytes);
                             }
 
-                            bool? isConn = null;
-                            if (SetupDiGetDevicePropertyW(hPnp, ref devInfo, ref isConnKey, out propType, propBuf, 16, out reqSize, 0) && reqSize >= 1)
-                            {
-                                isConn = (propBuf[0] != 0);
-                            }
-
-                            bool? isPres = null;
-                            if (SetupDiGetDevicePropertyW(hPnp, ref devInfo, ref isPresentKey, out propType, propBuf, 16, out reqSize, 0) && reqSize >= 1)
-                            {
-                                isPres = (propBuf[0] != 0);
-                            }
-
                             sbName.Clear();
                             uint regType, regReq;
                             if (!SetupDiGetDeviceRegistryProperty(hPnp, ref devInfo, 0x0C, out regType, sbName, (uint)sbName.Capacity, out regReq) || sbName.Length == 0)
@@ -840,34 +2460,45 @@ namespace OpenWidget
                             }
                             string devName = sbName.ToString().Trim();
 
-                            if (containerId != Guid.Empty)
+                            bool hasConnProp = false;
+                            bool connVal = true; // default true if property missing, matching generic.cpp
+                            if (SetupDiGetDevicePropertyW(hPnp, ref devInfo, ref isConnKey, out propType, propBuf, 16, out reqSize, 0) && reqSize >= 1)
                             {
-                                if (isConn == true) containerAnyConnected.Add(containerId);
+                                hasConnProp = true;
+                                connVal = (propBuf[0] != 0);
+                            }
 
-                                bool isPrimaryBtDevNode =
-                                    instId.StartsWith(@"BTHENUM\Dev_", StringComparison.OrdinalIgnoreCase) ||
-                                    instId.StartsWith(@"BTHLE\Dev_", StringComparison.OrdinalIgnoreCase);
-                                if (isPrimaryBtDevNode)
+                            if (containerId != Guid.Empty &&
+                                (instId.StartsWith(@"BTHENUM\DEV_", StringComparison.OrdinalIgnoreCase) ||
+                                 instId.StartsWith(@"BTHLE\DEV_", StringComparison.OrdinalIgnoreCase)))
+                            {
+                                if (!string.IsNullOrEmpty(devName) && !IsGenericBluetoothNodeName(devName) && !containerBaseNames.ContainsKey(containerId))
                                 {
-                                    if (isConn.HasValue)
-                                    {
-                                        bool prevConn;
-                                        if (!containerPrimaryBtConnected.TryGetValue(containerId, out prevConn) || isConn.Value)
-                                            containerPrimaryBtConnected[containerId] = isConn.Value;
-                                    }
-                                    if (!string.IsNullOrEmpty(devName) && !IsGenericBluetoothNodeName(devName) && !containerBaseNames.ContainsKey(containerId))
-                                    {
-                                        string baseClean = StripAudioProfileSuffixes(devName);
-                                        if (!string.IsNullOrEmpty(baseClean)) containerBaseNames[containerId] = baseClean;
-                                    }
+                                    string baseClean = StripAudioProfileSuffixes(devName);
+                                    if (!string.IsNullOrEmpty(baseClean)) containerBaseNames[containerId] = baseClean;
+                                }
+                                if (SetupDiGetDevicePropertyW(hPnp, ref devInfo, ref codKey, out propType, propBuf, 16, out reqSize, 0) && reqSize >= 4)
+                                {
+                                    containerCod[containerId] = BitConverter.ToUInt32(propBuf, 0);
+                                }
+                                if (hasConnProp)
+                                {
+                                    bool prevC = false;
+                                    containerConn.TryGetValue(containerId, out prevC);
+                                    containerConn[containerId] = prevC || connVal;
                                 }
                             }
 
                             if (SetupDiGetDevicePropertyW(hPnp, ref devInfo, ref batKey, out propType, propBuf, 16, out reqSize, 0) && reqSize >= 1)
                             {
                                 int pct = propBuf[0];
-                                if (pct > 0 && pct <= 100 && !string.IsNullOrEmpty(devName))
+                                if (pct > 0 && pct <= 100)
                                 {
+                                    uint cmStatus = 0, cmProblem = 0;
+                                    bool cmOk = false;
+                                    try { cmOk = (CM_Get_DevNode_Status(out cmStatus, out cmProblem, devInfo.DevInst, 0) == 0); } catch { }
+                                    if (cmOk && (cmStatus & 0x00000400u) != 0) continue; // DN_HAS_PROBLEM
+
                                     sbClass.Clear();
                                     SetupDiGetDeviceRegistryProperty(hPnp, ref devInfo, 0x07, out regType, sbClass, (uint)sbClass.Capacity, out regReq);
                                     sbEnum.Clear();
@@ -880,11 +2511,11 @@ namespace OpenWidget
                                         hwIds = Encoding.Unicode.GetString(propBuf, 0, byteLen).Replace('\0', ' ').Trim();
                                     }
 
-                                    uint cmStatus = 0, cmProblem = 0;
-                                    bool cmOk = false;
-                                    try { cmOk = (CM_Get_DevNode_Status(out cmStatus, out cmProblem, devInfo.DevInst, 0) == 0); } catch { }
+                                    string cKey = (containerId != Guid.Empty) ? containerId.ToString("N") : instId;
+                                    PnpBatteryCandidate prev;
+                                    if (byContainer.TryGetValue(cKey, out prev) && prev.IsConnected && !connVal) continue;
 
-                                    candidates.Add(new PnpBatteryCandidate
+                                    byContainer[cKey] = new PnpBatteryCandidate
                                     {
                                         RawName = devName,
                                         DevClass = sbClass.ToString().Trim(),
@@ -893,68 +2524,52 @@ namespace OpenWidget
                                         HardwareIds = hwIds,
                                         ContainerId = containerId,
                                         Pct = pct,
-                                        IsConnected = isConn,
-                                        IsPresent = isPres,
-                                        CmStarted = cmOk && ((cmStatus & 0x00000008u) != 0),
-                                        CmProblem = cmProblem
-                                    });
+                                        IsConnected = connVal
+                                    };
                                 }
                             }
                         }
 
-                        HashSet<Guid> addedContainers = new HashSet<Guid>();
-                        foreach (PnpBatteryCandidate c in candidates)
+                        foreach (PnpBatteryCandidate c in byContainer.Values)
                         {
-                            if (c.IsPresent == false || c.IsConnected == false) continue;
+                            if (c.ContainerId != Guid.Empty && claimedContainers.Contains(c.ContainerId)) continue;
+
+                            bool isBt = IsBluetoothTransport(c.Enumerator, c.InstanceId, c.HardwareIds);
+                            bool mainConnected = false;
+                            if (c.ContainerId != Guid.Empty && containerConn.TryGetValue(c.ContainerId, out mainConnected))
+                            {
+                                if (!mainConnected) continue;
+                            }
+                            else
+                            {
+                                if (!c.IsConnected) continue;
+                                if (isBt)
+                                {
+                                    string mac = ExtractBtMacFromInstanceId(c.InstanceId);
+                                    bool macConn;
+                                    if (!string.IsNullOrEmpty(mac) && btConnByMac.TryGetValue(mac, out macConn) && !macConn) continue;
+                                }
+                            }
 
                             string baseName = (c.ContainerId != Guid.Empty && containerBaseNames.ContainsKey(c.ContainerId))
                                 ? containerBaseNames[c.ContainerId]
                                 : "";
                             string cleanName = CleanWirelessDeviceName(c.RawName, baseName);
-                            if (string.IsNullOrEmpty(cleanName)) continue;
+                            if (string.IsNullOrEmpty(cleanName) || addedNames.Contains(cleanName)) continue;
 
-                            bool isBt = IsBluetoothTransport(c.Enumerator, c.InstanceId, c.HardwareIds);
-                            if (isBt)
+                            string icon, typeLabel;
+                            uint cod;
+                            if (c.ContainerId != Guid.Empty && containerCod.TryGetValue(c.ContainerId, out cod) &&
+                                KindFromClassOfDevice(cod, isEn, out icon, out typeLabel))
                             {
-                                string mac = ExtractBtMacFromInstanceId(c.InstanceId);
-                                bool btMacKnown = false, btMacConn = false;
-                                if (!string.IsNullOrEmpty(mac) && btConnByMac.TryGetValue(mac, out btMacConn))
-                                {
-                                    btMacKnown = true;
-                                    if (!btMacConn) continue;
-                                }
-
-                                bool btNameConn;
-                                if (btConnByName.TryGetValue(cleanName, out btNameConn))
-                                {
-                                    if (!btNameConn && !(btMacKnown && btMacConn)) continue;
-                                }
-
-                                bool contPrimConn = false;
-                                bool contPrimKnown = c.ContainerId != Guid.Empty && containerPrimaryBtConnected.TryGetValue(c.ContainerId, out contPrimConn);
-                                if (contPrimKnown && !contPrimConn) continue;
-
-                                bool hasPositiveConfirm =
-                                    (c.IsConnected == true) ||
-                                    (contPrimKnown && contPrimConn) ||
-                                    (c.ContainerId != Guid.Empty && containerAnyConnected.Contains(c.ContainerId)) ||
-                                    (btMacKnown && btMacConn) ||
-                                    btNameConn;
-                                if (!hasPositiveConfirm) continue;
                             }
                             else
                             {
-                                if (!c.CmStarted || c.CmProblem != 0) continue;
+                                ClassifyDeviceTypeAndIcon(cleanName, c.DevClass, isEn, out icon, out typeLabel);
                             }
 
-                            if (c.ContainerId != Guid.Empty && addedContainers.Contains(c.ContainerId)) continue;
-                            if (addedNames.Contains(cleanName)) continue;
-
-                            string icon, typeLabel;
-                            ClassifyDeviceTypeAndIcon(cleanName, c.DevClass, isEn, out icon, out typeLabel);
-
                             string protoSuffix = "";
-                            if (isBt)
+                            if (isBt && !c.InstanceId.StartsWith(@"HID\VID_", StringComparison.OrdinalIgnoreCase) && !c.InstanceId.StartsWith(@"USB\VID_", StringComparison.OrdinalIgnoreCase))
                             {
                                 protoSuffix = " • Bluetooth";
                             }
@@ -974,21 +2589,153 @@ namespace OpenWidget
                                 Name = cleanName,
                                 Detail = typeLabel + protoSuffix,
                                 PctText = isEn ? (c.Pct + "%") : ("%" + c.Pct),
-                                BarPct = c.Pct
+                                BarPct = c.Pct,
+                                IsCharging = false
                             });
                             addedNames.Add(cleanName);
-                            if (c.ContainerId != Guid.Empty) addedContainers.Add(c.ContainerId);
+                            if (c.ContainerId != Guid.Empty) claimedContainers.Add(c.ContainerId);
                         }
                     }
-                    finally
-                    {
-                        SetupDiDestroyDeviceInfoList(hPnp);
-                    }
+                    finally { SetupDiDestroyDeviceInfoList(hPnp); }
                 }
             }
             catch { }
 
-            // 3. Scan XInput & DirectInput Wireless Controllers (Gamepads)
+            // 3. Generic USB HID Battery Fallback (UsagePage 0x06/0x20 or 0x85/0x65)
+            try
+            {
+                HashSet<uint> digitizers = new HashSet<uint>();
+                foreach (HidCollectionInfo c in colls)
+                {
+                    if (c.UsagePage == 0x0D) digitizers.Add(vpKey(c.Vid, c.Pid));
+                }
+
+                foreach (HidCollectionInfo c in colls)
+                {
+                    uint k = vpKey(c.Vid, c.Pid);
+                    if (claimedVidPids.Contains(k) || digitizers.Contains(k)) continue;
+                    if (c.ContainerId != Guid.Empty && claimedContainers.Contains(c.ContainerId)) continue;
+                    if (c.UsagePage == 0x84 || c.UsagePage == 0x85) continue; // Skip UPS / power supplies
+                    if (c.NumFeatureValueCaps == 0 && c.NumInputValueCaps == 0) continue;
+
+                    IntPtr h = CreateFile(c.Path, 0, 3, IntPtr.Zero, 3, 0, IntPtr.Zero);
+                    if (h == IntPtr.Zero || h == new IntPtr(-1)) continue;
+                    try
+                    {
+                        IntPtr pp;
+                        if (!HidD_GetPreparsedData(h, out pp) || pp == IntPtr.Zero) continue;
+                        try
+                        {
+                            int pct = -1;
+                            bool charging = false;
+                            int[] reportTypes = { 2, 0 }; // HidP_Feature = 2, HidP_Input = 0
+                            foreach (int rType in reportTypes)
+                            {
+                                ushort nCaps = (rType == 2) ? c.NumFeatureValueCaps : c.NumInputValueCaps;
+                                ushort rLen = (rType == 2) ? c.FeatLen : c.InLen;
+                                if (nCaps == 0 || rLen == 0) continue;
+
+                                HIDP_VALUE_CAPS[] vc = new HIDP_VALUE_CAPS[nCaps];
+                                if (HidP_GetValueCaps(rType, vc, ref nCaps, pp) != 0x00110000) continue;
+
+                                for (int i = 0; i < nCaps && pct < 0; i++)
+                                {
+                                    ushort u = (vc[i].IsRange != 0) ? vc[i].UsageMin : vc[i].UsageMin;
+                                    if (!IsGenericHidBatteryUsage(vc[i].UsagePage, u)) continue;
+
+                                    byte[] buf = new byte[rLen];
+                                    buf[0] = vc[i].ReportID;
+                                    bool got = (rType == 2) ? HidD_GetFeature(h, buf, rLen) : HidD_GetInputReport(h, buf, rLen);
+                                    if (!got) continue;
+
+                                    uint rawVal;
+                                    if (HidP_GetUsageValue(rType, vc[i].UsagePage, vc[i].LinkCollection, u, out rawVal, pp, buf, rLen) != 0x00110000) continue;
+
+                                    if (c.Vid == 0x05AC && rawVal <= 100)
+                                    {
+                                        pct = (int)rawVal;
+                                    }
+                                    else if (vc[i].LogicalMax > vc[i].LogicalMin)
+                                    {
+                                        double scaled = (((int)rawVal - vc[i].LogicalMin) * 100.0) / (vc[i].LogicalMax - vc[i].LogicalMin);
+                                        pct = Math.Max(0, Math.Min(100, (int)Math.Round(scaled)));
+                                    }
+                                    else if (rawVal <= 100)
+                                    {
+                                        pct = (int)rawVal;
+                                    }
+
+                                    if (pct >= 0)
+                                    {
+                                        bool chg = false, full = false, ac = false, dis = false;
+                                        uint maxU = HidP_MaxUsageListLength(rType, 0x85, pp);
+                                        if (maxU > 0)
+                                        {
+                                            ushort[] on = new ushort[maxU];
+                                            uint uLen = maxU;
+                                            if (HidP_GetUsages(rType, 0x85, 0, on, ref uLen, pp, buf, rLen) == 0x00110000)
+                                            {
+                                                for (int ui = 0; ui < uLen; ui++)
+                                                {
+                                                    if (on[ui] == 0x44) chg = true;
+                                                    else if (on[ui] == 0x45) dis = true;
+                                                    else if (on[ui] == 0x46) full = true;
+                                                    else if (on[ui] == 0xD0) ac = true;
+                                                }
+                                            }
+                                        }
+                                        for (int vi = 0; vi < nCaps; vi++)
+                                        {
+                                            if (vc[vi].UsagePage != 0x85) continue;
+                                            ushort vu = vc[vi].UsageMin;
+                                            if (vu != 0x44 && vu != 0x45 && vu != 0x46 && vu != 0xD0) continue;
+                                            uint vVal;
+                                            if (HidP_GetUsageValue(rType, 0x85, vc[vi].LinkCollection, vu, out vVal, pp, buf, rLen) == 0x00110000 && vVal != 0)
+                                            {
+                                                if (vu == 0x44) chg = true;
+                                                else if (vu == 0x45) dis = true;
+                                                else if (vu == 0x46) full = true;
+                                                else if (vu == 0xD0) ac = true;
+                                            }
+                                        }
+                                        charging = chg || full || (ac && !dis);
+                                    }
+                                }
+                                if (pct >= 0) break;
+                            }
+
+                            if (pct > 0 && pct <= 100)
+                            {
+                                claimDev(c.Vid, c.Pid, c.ContainerId);
+                                string rawName = ReadUsbProductName(c.Path, isEn ? "Wireless Device" : "Kablosuz Cihaz");
+                                string cleanName = StripAudioProfileSuffixes(rawName);
+                                if (string.IsNullOrEmpty(cleanName)) cleanName = isEn ? "Wireless Device" : "Kablosuz Cihaz";
+                                if (!addedNames.Contains(cleanName))
+                                {
+                                    string icon, typeLabel;
+                                    ClassifyDeviceTypeAndIcon(cleanName, "", isEn, out icon, out typeLabel);
+                                    results.Add(new WirelessDeviceReading
+                                    {
+                                        IdKey = string.Format("HID_{0:X4}_{1:X4}", c.Vid, c.Pid),
+                                        Icon = icon,
+                                        Name = cleanName,
+                                        Detail = charging ? (typeLabel + " • " + (isEn ? "⚡ Charging" : "⚡ Şarjda")) : (typeLabel + " • 2.4GHz"),
+                                        PctText = isEn ? (pct + "%") : ("%" + pct),
+                                        BarPct = pct,
+                                        IsCharging = charging
+                                    });
+                                    addedNames.Add(cleanName);
+                                }
+                            }
+                        }
+                        finally { HidD_FreePreparsedData(pp); }
+                    }
+                    finally { CloseHandle(h); }
+                }
+            }
+            catch { }
+
+            // 4. Scan XInput & DirectInput Wireless Controllers (Gamepads)
             bool hasControllerAlready = false;
             foreach (WirelessDeviceReading r in results)
             {
@@ -998,6 +2745,7 @@ namespace OpenWidget
             if (!hasControllerAlready)
             {
                 bool padConnected = false;
+                bool padCharging = false;
                 string padDetail = "";
                 string padPctText = "";
                 int padBarPct = 0;
@@ -1016,6 +2764,7 @@ namespace OpenWidget
                                 if (bat.BatteryType == 1)
                                 {
                                     padBarPct = 100;
+                                    padCharging = true;
                                     padPctText = isEn ? "100%" : "%100";
                                     padDetail = isEn ? "Controller • Wired" : "Kumanda • Kablolu";
                                 }
@@ -1071,7 +2820,8 @@ namespace OpenWidget
                         Name = isEn ? "Wireless Controller" : "Kablosuz Kumanda",
                         Detail = padDetail,
                         PctText = padPctText,
-                        BarPct = padBarPct
+                        BarPct = padBarPct,
+                        IsCharging = padCharging
                     });
                 }
             }
@@ -1926,7 +3676,7 @@ namespace OpenWidget
                 sb.AppendLine("Longitude=" + finalLoc.Longitude.ToString("0.0000", System.Globalization.CultureInfo.InvariantCulture));
                 sb.AppendLine("ShowCalendarWidget=" + (enableCalendar ? "1" : "0"));
                 sb.AppendLine("ShowTimerWidget=" + (enableTimer ? "1" : "0"));
-                File.WriteAllText(configFilePath, sb.ToString());
+                MainWindow.WriteAllTextAtomic(configFilePath, sb.ToString(), new UTF8Encoding(false));
 
                 // Create shortcuts if requested
                 try
@@ -2668,6 +4418,8 @@ namespace OpenWidget
             public TextBlock Detail;
             public Border Fill;
             public TextBlock Pct;
+            public bool IsCharging;
+            public int BarPct;
         }
         private Grid wirelessHeaderGrid;
         private TextBlock txtWirelessSectionTitle;
@@ -2678,6 +4430,8 @@ namespace OpenWidget
         private Dictionary<string, string> wirelessLastHz = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         private int wirelessPollingBusy = 0;
         private int lastWirelessCount = 0;
+        private bool notifyLowBattery = true;
+        private readonly HashSet<string> lowBatteryNotifiedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         // Monitor Brightness UI & State (Auto-Detects Connected Displays, HDR SDRWhiteLevel + DDC/CI)
         private readonly List<PhysicalMonitorSlot> monitorSlots = new List<PhysicalMonitorSlot>();
@@ -2820,6 +4574,8 @@ namespace OpenWidget
         private int timerSaveTickCounter = 0;
         private DateTime activeTrackingDate = DateTime.Today;
         private string activityDataFilePath;
+        private string lastSavedActivityPayload = null;
+        private static readonly object atomicFileIoLock = new object();
         private Window timerWindow;
         private Border timerOuterBorder;
         private WindowChrome timerWindowChrome;
@@ -2876,7 +4632,7 @@ namespace OpenWidget
         private int lastTaskbarOverlayY = int.MinValue;
         private int lastTaskbarOverlayW = int.MinValue;
         private bool taskbarOverlayHiddenByFullscreen = false;
-        private struct TaskbarDeviceItem { public string Kind; public string Name; public int Pct; public string Detail; }
+        private struct TaskbarDeviceItem { public string Kind; public string Name; public int Pct; public string Detail; public bool IsCharging; }
         private readonly List<TaskbarDeviceItem> latestTaskbarDevices = new List<TaskbarDeviceItem>();
 
         // Custom Timer Mode Colors & Settings / Detailed View Windows
@@ -3052,13 +4808,136 @@ namespace OpenWidget
             catch { }
         }
 
+        internal static bool IsValidTextFile(string path)
+        {
+            try
+            {
+                if (!File.Exists(path)) return false;
+                FileInfo fi = new FileInfo(path);
+                if (fi.Length <= 0) return false;
+                int checkLen = (int)Math.Min(fi.Length, 512);
+                byte[] buf = new byte[checkLen];
+                using (FileStream fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                {
+                    int read = fs.Read(buf, 0, checkLen);
+                    if (read <= 0) return false;
+                    bool hasNonWhitespace = false;
+                    for (int i = 0; i < read; i++)
+                    {
+                        byte b = buf[i];
+                        if (b == 0) return false; // NUL byte indicates NTFS crash truncation / corruption
+                        if (b != (byte)' ' && b != (byte)'\t' && b != (byte)'\r' && b != (byte)'\n')
+                            hasNonWhitespace = true;
+                    }
+                    return hasNonWhitespace;
+                }
+            }
+            catch { return false; }
+        }
+
+        internal static void WriteAllTextAtomic(string path, string content, Encoding encoding)
+        {
+            if (string.IsNullOrEmpty(path)) return;
+            lock (atomicFileIoLock)
+            {
+                string tmpPath = path + ".tmp";
+                string bakPath = path + ".bak";
+                byte[] data = (encoding ?? new UTF8Encoding(false)).GetBytes(content ?? "");
+
+                // 1. Write to temp file with WriteThrough + Flush(true) so bytes reach physical disk before rename
+                using (FileStream fs = new FileStream(tmpPath, FileMode.Create, FileAccess.Write, FileShare.None, 4096, FileOptions.WriteThrough))
+                {
+                    if (data.Length > 0) fs.Write(data, 0, data.Length);
+                    fs.Flush(true);
+                }
+
+                // 2. Atomically replace target while preserving previous healthy version as .bak
+                bool targetExists = File.Exists(path);
+                if (targetExists)
+                {
+                    bool targetHealthy = IsValidTextFile(path);
+                    for (int attempt = 0; attempt < 3; attempt++)
+                    {
+                        try
+                        {
+                            if (targetHealthy)
+                            {
+                                // ReplaceFileW atomically rotates path -> bakPath and tmpPath -> path
+                                File.Replace(tmpPath, path, bakPath, true);
+                            }
+                            else
+                            {
+                                // Do not overwrite a potentially healthy .bak with a corrupted target
+                                File.Copy(tmpPath, path, true);
+                                try { File.Delete(tmpPath); } catch { }
+                            }
+                            return;
+                        }
+                        catch (IOException)
+                        {
+                            if (attempt < 2) System.Threading.Thread.Sleep(25);
+                        }
+                        catch (UnauthorizedAccessException)
+                        {
+                            if (attempt < 2) System.Threading.Thread.Sleep(25);
+                        }
+                    }
+
+                    // Fallback if File.Replace is blocked by AV/lock
+                    if (targetHealthy)
+                    {
+                        try { File.Copy(path, bakPath, true); } catch { }
+                    }
+                    File.Copy(tmpPath, path, true);
+                    try { File.Delete(tmpPath); } catch { }
+                }
+                else
+                {
+                    File.Move(tmpPath, path);
+                    try
+                    {
+                        if (!File.Exists(bakPath)) File.Copy(path, bakPath, false);
+                    }
+                    catch { }
+                }
+            }
+        }
+
+        internal static string[] ReadAllLinesCrashSafe(string path, Encoding encoding)
+        {
+            if (string.IsNullOrEmpty(path)) return null;
+            Encoding enc = encoding ?? Encoding.UTF8;
+            string[] candidates = new string[] { path, path + ".bak", path + ".tmp" };
+            for (int i = 0; i < candidates.Length; i++)
+            {
+                string c = candidates[i];
+                if (!IsValidTextFile(c)) continue;
+                try
+                {
+                    string[] lines = File.ReadAllLines(c, enc);
+                    if (lines != null && lines.Length > 0)
+                    {
+                        // If recovered from .bak or .tmp because primary was missing/corrupted, self-heal primary
+                        if (i > 0)
+                        {
+                            try { WriteAllTextAtomic(path, string.Join(Environment.NewLine, lines) + Environment.NewLine, new UTF8Encoding(false)); } catch { }
+                        }
+                        return lines;
+                    }
+                }
+                catch { }
+            }
+            return null;
+        }
+
         private void LoadSettings()
         {
             try
             {
-                if (File.Exists(settingsFilePath))
+                string[] settingsLines = ReadAllLinesCrashSafe(settingsFilePath, Encoding.UTF8);
+                if (settingsLines != null)
                 {
-                    foreach (string line in File.ReadAllLines(settingsFilePath))
+                    foreach (string line in settingsLines)
                     {
                         int idx = line.IndexOf('=');
                         if (idx > 0)
@@ -3228,6 +5107,10 @@ namespace OpenWidget
                             {
                                 showTaskbarDevices = (v == "1" || v.Equals("true", StringComparison.OrdinalIgnoreCase));
                             }
+                            else if (k == "NotifyLowBattery")
+                            {
+                                notifyLowBattery = (v == "1" || v.Equals("true", StringComparison.OrdinalIgnoreCase));
+                            }
                             else if (k == "TimerStudyColor" && v.StartsWith("#") && (v.Length == 7 || v.Length == 9))
                             {
                                 timerStudyColorHex = v;
@@ -3295,9 +5178,10 @@ namespace OpenWidget
                 sb.AppendLine("PomoFocusMin=" + pomoFocusMinutes);
                 sb.AppendLine("PomoBreakMin=" + pomoBreakMinutes);
                 sb.AppendLine("ShowTaskbarDevices=" + (showTaskbarDevices ? "1" : "0"));
+                sb.AppendLine("NotifyLowBattery=" + (notifyLowBattery ? "1" : "0"));
                 sb.AppendLine("TimerStudyColor=" + timerStudyColorHex);
                 sb.AppendLine("TimerGameColor=" + timerGameColorHex);
-                File.WriteAllText(settingsFilePath, sb.ToString());
+                WriteAllTextAtomic(settingsFilePath, sb.ToString(), new UTF8Encoding(false));
             }
             catch { }
         }
@@ -3970,6 +5854,13 @@ namespace OpenWidget
                 foreach (Border fill in accentBarFills)
                 {
                     fill.Background = accentBrush;
+                }
+
+                foreach (WirelessRowUi wui in wirelessRowCache.Values)
+                {
+                    Brush sb = GetWirelessStatusBrush(wui.BarPct, wui.IsCharging);
+                    wui.Pct.Foreground = sb;
+                    wui.Fill.Background = sb;
                 }
 
                 for (int i = 0; i < monitorSliderContainers.Count && i < sliderMonitors.Count; i++)
@@ -6315,6 +8206,72 @@ namespace OpenWidget
             taskbarDevCard.Child = tbDevTop;
             tabPanels[1].Children.Add(taskbarDevCard);
 
+            // Low Battery Notification Card (%10 Alert)
+            Border lowBatCard = new Border
+            {
+                CornerRadius = new CornerRadius(11),
+                Background = HexBrush(notifyLowBattery ? "#2C221C" : "#221C18"),
+                BorderBrush = HexBrush(notifyLowBattery ? accentColorHex : "#3B302A"),
+                BorderThickness = new Thickness(1.2),
+                Padding = new Thickness(13, 11, 13, 11),
+                Margin = new Thickness(0, 0, 0, 10)
+            };
+            Grid lowBatTop = new Grid();
+            lowBatTop.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            lowBatTop.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            StackPanel lowBatInfo = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0) };
+            lowBatInfo.Children.Add(new TextBlock
+            {
+                Text = L("🪫 Düşük Pil Bildirimi (%10)", "🪫 Low Battery Alert (10%)"),
+                Foreground = HexBrush("#FAF6F2"),
+                FontSize = 12,
+                FontWeight = FontWeights.Bold,
+                TextWrapping = TextWrapping.Wrap
+            });
+            lowBatInfo.Children.Add(new TextBlock
+            {
+                Text = L("Kablosuz cihazların şarjı %10 veya altına düştüğünde Windows bildirimi gönderir", "Sends a Windows notification when any wireless device battery drops to 10% or below"),
+                Foreground = HexBrush("#9E8E82"),
+                FontSize = 10.5,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 2, 0, 0)
+            });
+            Grid.SetColumn(lowBatInfo, 0);
+            lowBatTop.Children.Add(lowBatInfo);
+
+            Button btnToggleLowBat = CreateStyledIconButton(
+                notifyLowBattery ? "#38281E" : "#1D1815",
+                notifyLowBattery ? accentColorHex : "#3E322B",
+                L("Düşük pil bildirimini aç veya kapat", "Enable or disable low battery notifications"));
+            btnToggleLowBat.Padding = new Thickness(11, 5, 11, 5);
+            btnToggleLowBat.MinWidth = 72;
+            btnToggleLowBat.VerticalAlignment = VerticalAlignment.Center;
+            TextBlock txtToggleLowBat = new TextBlock
+            {
+                Text = notifyLowBattery ? L("✓ Açık", "✓ On") : L("Kapalı", "Off"),
+                Foreground = HexBrush(notifyLowBattery ? "#FAF6F2" : "#8E7F74"),
+                FontSize = 11,
+                FontWeight = FontWeights.Bold
+            };
+            btnToggleLowBat.Content = txtToggleLowBat;
+            btnToggleLowBat.Click += (s, e) =>
+            {
+                notifyLowBattery = !notifyLowBattery;
+                if (!notifyLowBattery) lowBatteryNotifiedKeys.Clear();
+                SaveSettings();
+                lowBatCard.Background = HexBrush(notifyLowBattery ? "#2C221C" : "#221C18");
+                lowBatCard.BorderBrush = HexBrush(notifyLowBattery ? accentColorHex : "#3B302A");
+                btnToggleLowBat.Background = HexBrush(notifyLowBattery ? "#38281E" : "#1D1815");
+                btnToggleLowBat.BorderBrush = HexBrush(notifyLowBattery ? accentColorHex : "#3E322B");
+                txtToggleLowBat.Text = notifyLowBattery ? L("✓ Açık", "✓ On") : L("Kapalı", "Off");
+                txtToggleLowBat.Foreground = HexBrush(notifyLowBattery ? "#FAF6F2" : "#8E7F74");
+            };
+            Grid.SetColumn(btnToggleLowBat, 1);
+            lowBatTop.Children.Add(btnToggleLowBat);
+            lowBatCard.Child = lowBatTop;
+            tabPanels[1].Children.Add(lowBatCard);
+
             // =========================================================
             // TAB 2: MODULE ORDER, VISIBILITY & TELEMETRY SUB-TOGGLES
             // =========================================================
@@ -7718,6 +9675,45 @@ namespace OpenWidget
         // ==========================================
         // UNIVERSAL WIRELESS PERIPHERALS BATTERY SCAN
         // ==========================================
+        private Brush GetWirelessStatusBrush(int pct, bool isCharging)
+        {
+            if (isCharging) return HexBrush("#22C55E");
+            if (pct > 0 && pct <= 10) return HexBrush("#EF4444");
+            return HexBrush(accentColorHex);
+        }
+
+        private void CheckAndNotifyLowBattery(string key, string name, int pct, bool isCharging, bool isAsleep)
+        {
+            if (string.IsNullOrEmpty(key)) return;
+            if (!notifyLowBattery)
+            {
+                lowBatteryNotifiedKeys.Remove(key);
+                return;
+            }
+            if (isAsleep || pct <= 0 || pct > 100) return;
+            if (isCharging || pct > 20)
+            {
+                lowBatteryNotifiedKeys.Remove(key);
+                return;
+            }
+            if (pct <= 10 && !lowBatteryNotifiedKeys.Contains(key))
+            {
+                lowBatteryNotifiedKeys.Add(key);
+                try
+                {
+                    if (trayIcon != null)
+                    {
+                        trayIcon.ShowBalloonTip(
+                            6000,
+                            L("🪫 Düşük Pil Uyarısı", "🪫 Low Battery Alert"),
+                            string.Format(L("{0} şarjı %{1} seviyesine düştü!", "{0} battery is down to {1}%!"), name, pct),
+                            System.Windows.Forms.ToolTipIcon.Warning);
+                    }
+                }
+                catch { }
+            }
+        }
+
         private void PollWirelessDevicesAsync()
         {
             if (Interlocked.CompareExchange(ref wirelessPollingBusy, 1, 0) != 0) return;
@@ -7738,27 +9734,30 @@ namespace OpenWidget
                         kv.Value.Row.Visibility = Visibility.Collapsed;
                     }
 
-                    SolidColorBrush accentBrush = (SolidColorBrush)HexBrush(accentColorHex);
-
                     foreach (WirelessDeviceReading dev in activeList)
                     {
                         WirelessRowUi ui;
                         if (!wirelessRowCache.TryGetValue(dev.IdKey, out ui))
                         {
                             ui = new WirelessRowUi();
-                            ui.Row = CreateWirelessDeviceRow(dev.Icon, dev.Name, dev.Detail, true, out ui.Label, out ui.Detail, out ui.Fill, out ui.Pct);
+                            ui.Row = CreateWirelessDeviceRow(dev.Icon, dev.Name, dev.Detail, false, out ui.Label, out ui.Detail, out ui.Fill, out ui.Pct);
                             wirelessRowCache[dev.IdKey] = ui;
                             panelWirelessContent.Children.Add(ui.Row);
                         }
                         ui.Row.Visibility = Visibility.Visible;
+                        ui.IsCharging = dev.IsCharging;
+                        ui.BarPct = dev.BarPct;
+                        Brush statusBrush = GetWirelessStatusBrush(dev.BarPct, dev.IsCharging);
                         ui.Label.Text = dev.Name;
                         ui.Label.ToolTip = dev.Name;
                         ui.Detail.Text = dev.Detail;
                         ui.Detail.ToolTip = dev.Detail;
                         ui.Pct.Text = dev.PctText;
-                        ui.Pct.Foreground = accentBrush;
-                        ui.Fill.Background = accentBrush;
+                        ui.Pct.Foreground = statusBrush;
+                        ui.Fill.Background = statusBrush;
                         ui.Fill.Width = dev.BarPct > 0 ? Math.Max(3, (42.0 * dev.BarPct) / 100.0) : 0;
+
+                        CheckAndNotifyLowBattery(dev.IdKey, dev.Name, dev.BarPct, dev.IsCharging, dev.IsAsleep);
                     }
 
                     Visibility targetVis = (showSecWireless && activeList.Count > 0) ? Visibility.Visible : Visibility.Collapsed;
@@ -7793,7 +9792,8 @@ namespace OpenWidget
                             Kind = kind,
                             Name = dev.Name,
                             Pct = dev.BarPct,
-                            Detail = dev.Detail
+                            Detail = dev.Detail,
+                            IsCharging = dev.IsCharging
                         });
                     }
                     RefreshTaskbarDevicesOverlayUi();
@@ -7955,7 +9955,7 @@ namespace OpenWidget
             sigSb.Append(lightTheme ? "L|" : "D|").Append(appLanguage).Append('|');
             for (int i = 0; i < latestTaskbarDevices.Count; i++)
             {
-                sigSb.Append(latestTaskbarDevices[i].Kind).Append(':').Append(latestTaskbarDevices[i].Pct).Append(':').Append(latestTaskbarDevices[i].Detail).Append('|');
+                sigSb.Append(latestTaskbarDevices[i].Kind).Append(':').Append(latestTaskbarDevices[i].Pct).Append(latestTaskbarDevices[i].IsCharging ? ":C:" : ":").Append(latestTaskbarDevices[i].Detail).Append('|');
             }
             string sig = sigSb.ToString();
             if (string.Equals(sig, lastTaskbarDevicesSignature, StringComparison.Ordinal))
@@ -7967,14 +9967,14 @@ namespace OpenWidget
 
             taskbarDevicesPanel.Children.Clear();
             Brush normalFg = HexBrush(lightTheme ? "#1B1B1B" : "#F3F3F3");
-            Brush lowFg = HexBrush(lightTheme ? "#C42B1C" : "#FF6B6B");
+            Brush chargingFg = HexBrush(lightTheme ? "#15803D" : "#4ADE80");
+            Brush lowFg = HexBrush(lightTheme ? "#C42B1C" : "#FF5A5A");
             Brush hoverBg = HexBrush(lightTheme ? "#16000000" : "#1CFFFFFF");
 
             for (int i = 0; i < latestTaskbarDevices.Count; i++)
             {
                 TaskbarDeviceItem d = latestTaskbarDevices[i];
-                bool low = d.Pct <= 15;
-                Brush fg = low ? lowFg : normalFg;
+                Brush fg = d.IsCharging ? chargingFg : (d.Pct <= 10 ? lowFg : normalFg);
 
                 Border pill = new Border
                 {
@@ -9485,7 +11485,11 @@ namespace OpenWidget
                     accentColorHex,
                     cleanTitle);
 
-                File.AppendAllLines(customFile, new string[] { line }, new UTF8Encoding(false));
+                List<string> existingCustom = new List<string>();
+                string[] prevCustom = ReadAllLinesCrashSafe(customFile, Encoding.UTF8);
+                if (prevCustom != null) existingCustom.AddRange(prevCustom);
+                existingCustom.Add(line);
+                WriteAllTextAtomic(customFile, string.Join(Environment.NewLine, existingCustom.ToArray()) + Environment.NewLine, new UTF8Encoding(false));
                 txtCalQuickTitle.Text = "";
                 calQuickAddPanel.Visibility = Visibility.Collapsed;
                 Task.Run(() => LoadAndSyncCalendarEventsAsync(false));
@@ -9499,14 +11503,15 @@ namespace OpenWidget
             try
             {
                 string customFile = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "custom_events.dat");
-                if (File.Exists(customFile))
+                string[] existingCustom = ReadAllLinesCrashSafe(customFile, Encoding.UTF8);
+                if (existingCustom != null)
                 {
                     List<string> kept = new List<string>();
-                    foreach (string l in File.ReadAllLines(customFile, Encoding.UTF8))
+                    foreach (string l in existingCustom)
                     {
                         if (l.Trim() != rawLine.Trim()) kept.Add(l);
                     }
-                    File.WriteAllLines(customFile, kept.ToArray(), new UTF8Encoding(false));
+                    WriteAllTextAtomic(customFile, kept.Count > 0 ? (string.Join(Environment.NewLine, kept.ToArray()) + Environment.NewLine) : "", new UTF8Encoding(false));
                 }
                 Task.Run(() => LoadAndSyncCalendarEventsAsync(false));
                 ShowToast(L("Etkinlik silindi", "Event deleted"));
@@ -9541,9 +11546,10 @@ namespace OpenWidget
                     }
                 }
 
-                if (File.Exists(customPath))
+                string[] customLines = ReadAllLinesCrashSafe(customPath, Encoding.UTF8);
+                if (customLines != null)
                 {
-                    foreach (string line in File.ReadAllLines(customPath, Encoding.UTF8))
+                    foreach (string line in customLines)
                     {
                         CalendarEventItem item = ParsePipeEventLine(line, true);
                         if (item != null) loaded.Add(item);
@@ -9938,53 +11944,100 @@ namespace OpenWidget
             return raw.Replace('|', ' ').Replace(';', ' ').Replace('=', ' ').Replace('\r', ' ').Replace('\n', ' ').Trim();
         }
 
+        private static Dictionary<DateTime, DailyActivityRecord> TryParseTimerActivityFile(string path)
+        {
+            Dictionary<DateTime, DailyActivityRecord> map = new Dictionary<DateTime, DailyActivityRecord>();
+            if (!IsValidTextFile(path)) return map;
+            try
+            {
+                foreach (string line in File.ReadAllLines(path, Encoding.UTF8))
+                {
+                    if (string.IsNullOrWhiteSpace(line)) continue;
+                    string[] p = line.Split('|');
+                    DateTime dt;
+                    int st, gm, pc;
+                    if (p.Length >= 4 &&
+                        DateTime.TryParseExact(p[0].Trim(), "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out dt) &&
+                        int.TryParse(p[1], out st) &&
+                        int.TryParse(p[2], out gm) &&
+                        int.TryParse(p[3], out pc))
+                    {
+                        DailyActivityRecord rec = new DailyActivityRecord
+                        {
+                            Date = dt.Date,
+                            StudySeconds = Math.Max(0, st),
+                            GameSeconds = Math.Max(0, gm),
+                            PcSeconds = Math.Max(0, pc)
+                        };
+                        if (p.Length >= 5 && !string.IsNullOrWhiteSpace(p[4]))
+                        {
+                            string[] entries = p[4].Split(new char[] { ';' }, StringSplitOptions.RemoveEmptyEntries);
+                            for (int ei = 0; ei < entries.Length; ei++)
+                            {
+                                int eq = entries[ei].LastIndexOf('=');
+                                if (eq > 0 && eq < entries[ei].Length - 1)
+                                {
+                                    string gName = entries[ei].Substring(0, eq).Trim();
+                                    int gSec;
+                                    if (!string.IsNullOrEmpty(gName) && int.TryParse(entries[ei].Substring(eq + 1), out gSec) && gSec > 0)
+                                    {
+                                        int prevSec;
+                                        rec.GameBreakdown.TryGetValue(gName, out prevSec);
+                                        rec.GameBreakdown[gName] = prevSec + gSec;
+                                    }
+                                }
+                            }
+                        }
+                        map[dt.Date] = rec;
+                    }
+                }
+            }
+            catch { }
+            return map;
+        }
+
         private void LoadTimerActivityData()
         {
             try
             {
                 activityDataFilePath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "timer_activity.dat");
                 activityByDate.Clear();
-                if (File.Exists(activityDataFilePath))
+                lastSavedActivityPayload = null;
+
+                Dictionary<DateTime, DailyActivityRecord> primary = TryParseTimerActivityFile(activityDataFilePath);
+                Dictionary<DateTime, DailyActivityRecord> backup = TryParseTimerActivityFile(activityDataFilePath + ".bak");
+                Dictionary<DateTime, DailyActivityRecord> temp = TryParseTimerActivityFile(activityDataFilePath + ".tmp");
+
+                bool needsRepairSave = false;
+                DateTime cutoff = DateTime.Today.AddDays(-400);
+
+                // Start from primary if valid; otherwise pick the richer recovery source (.bak or .tmp)
+                if (primary.Count > 0)
                 {
-                    foreach (string line in File.ReadAllLines(activityDataFilePath, Encoding.UTF8))
+                    foreach (var kv in primary) activityByDate[kv.Key] = kv.Value;
+                }
+                else if (backup.Count >= temp.Count && backup.Count > 0)
+                {
+                    foreach (var kv in backup) activityByDate[kv.Key] = kv.Value;
+                    needsRepairSave = true;
+                }
+                else if (temp.Count > 0)
+                {
+                    foreach (var kv in temp) activityByDate[kv.Key] = kv.Value;
+                    needsRepairSave = true;
+                }
+
+                // Merge any missing historical days from .bak / .tmp so a power-loss reset can never wipe history
+                Dictionary<DateTime, DailyActivityRecord>[] fallbacks = new Dictionary<DateTime, DailyActivityRecord>[] { backup, temp };
+                for (int fi = 0; fi < fallbacks.Length; fi++)
+                {
+                    foreach (var kv in fallbacks[fi])
                     {
-                        if (string.IsNullOrWhiteSpace(line)) continue;
-                        string[] p = line.Split('|');
-                        DateTime dt;
-                        int st, gm, pc;
-                        if (p.Length >= 4 &&
-                            DateTime.TryParseExact(p[0].Trim(), "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out dt) &&
-                            int.TryParse(p[1], out st) &&
-                            int.TryParse(p[2], out gm) &&
-                            int.TryParse(p[3], out pc))
+                        if (kv.Key < cutoff) continue;
+                        if (!activityByDate.ContainsKey(kv.Key))
                         {
-                            DailyActivityRecord rec = new DailyActivityRecord
-                            {
-                                Date = dt.Date,
-                                StudySeconds = Math.Max(0, st),
-                                GameSeconds = Math.Max(0, gm),
-                                PcSeconds = Math.Max(0, pc)
-                            };
-                            if (p.Length >= 5 && !string.IsNullOrWhiteSpace(p[4]))
-                            {
-                                string[] entries = p[4].Split(new char[] { ';' }, StringSplitOptions.RemoveEmptyEntries);
-                                for (int ei = 0; ei < entries.Length; ei++)
-                                {
-                                    int eq = entries[ei].LastIndexOf('=');
-                                    if (eq > 0 && eq < entries[ei].Length - 1)
-                                    {
-                                        string gName = entries[ei].Substring(0, eq).Trim();
-                                        int gSec;
-                                        if (!string.IsNullOrEmpty(gName) && int.TryParse(entries[ei].Substring(eq + 1), out gSec) && gSec > 0)
-                                        {
-                                            int prevSec;
-                                            rec.GameBreakdown.TryGetValue(gName, out prevSec);
-                                            rec.GameBreakdown[gName] = prevSec + gSec;
-                                        }
-                                    }
-                                }
-                            }
-                            activityByDate[dt.Date] = rec;
+                            activityByDate[kv.Key] = kv.Value;
+                            needsRepairSave = true;
                         }
                     }
                 }
@@ -9997,6 +12050,11 @@ namespace OpenWidget
                     {
                         todayRec.PcSeconds = (int)Math.Max(0, Math.Min(86400, bootSec));
                     }
+                }
+
+                if (needsRepairSave && activityByDate.Count > 0)
+                {
+                    SaveTimerActivityData();
                 }
             }
             catch { }
@@ -10049,7 +12107,15 @@ namespace OpenWidget
                     }
                     sb.AppendLine();
                 }
-                File.WriteAllText(activityDataFilePath, sb.ToString(), new UTF8Encoding(false));
+
+                string payload = sb.ToString();
+                // Never overwrite a valid history file with an empty payload
+                if (string.IsNullOrWhiteSpace(payload)) return;
+                // Skip redundant disk flush when nothing changed since last save
+                if (string.Equals(payload, lastSavedActivityPayload, StringComparison.Ordinal)) return;
+
+                WriteAllTextAtomic(activityDataFilePath, payload, new UTF8Encoding(false));
+                lastSavedActivityPayload = payload;
             }
             catch { }
         }
