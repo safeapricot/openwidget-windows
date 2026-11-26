@@ -1,128 +1,88 @@
-# OpenWidget for Windows (`openwidget-windows`)
+<div align="center">
 
-> **Ultra-Lightweight, Native Frosted-Glass Desktop Widget for Windows 10 & 11**
+# OpenWidget for Windows
 
-[![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011%20(x64)-0078D6?style=for-the-badge&logo=windows)](https://github.com/safeapricot/openwidget-windows)
-[![Language](https://img.shields.io/badge/Language-C%23%20%2F%20WPF-68217A?style=for-the-badge&logo=csharp)](https://github.com/safeapricot/openwidget-windows)
-[![RAM Usage](https://img.shields.io/badge/RAM%20Footprint-~23%20MB-10B981?style=for-the-badge)](https://github.com/safeapricot/openwidget-windows)
-[![CPU Idle](https://img.shields.io/badge/Idle%20CPU-0.0%25-38BDF8?style=for-the-badge)](https://github.com/safeapricot/openwidget-windows)
-[![Localization](https://img.shields.io/badge/Localization-English%20%7C%20T%C3%BCrk%C3%A7e-E2925C?style=for-the-badge)](https://github.com/safeapricot/openwidget-windows)
+**Lightweight, native frosted-glass desktop companion for Windows 10 & 11 — single ~448 KB `.exe`, zero dependencies, 0.0% idle CPU.**
 
-## One-Click Download
+[![Platform](https://img.shields.io/badge/Windows-10%20%7C%2011%20(x64)-0078D6?style=for-the-badge&logo=windows)](https://github.com/safeapricot/openwidget-windows)
+[![C# WPF](https://img.shields.io/badge/C%23%20%2F%20WPF-~448%20KB-68217A?style=for-the-badge&logo=csharp)](https://github.com/safeapricot/openwidget-windows)
+[![RAM Footprint](https://img.shields.io/badge/RAM-~23%20MB-10B981?style=for-the-badge)](https://github.com/safeapricot/openwidget-windows)
+[![Idle CPU](https://img.shields.io/badge/Idle%20CPU-0.0%25-38BDF8?style=for-the-badge)](https://github.com/safeapricot/openwidget-windows)
+[![Languages](https://img.shields.io/badge/UI-English%20%7C%20T%C3%BCrk%C3%A7e-E2925C?style=for-the-badge)](https://github.com/safeapricot/openwidget-windows)
 
-[![Download OpenWidget ZIP](https://img.shields.io/badge/DOWNLOAD%20ZIP-OpenWidget%20v3.05.0-E2925C?style=for-the-badge&logo=windows)](https://github.com/safeapricot/openwidget-windows/releases/download/v3.05.0/OpenWidget-v3.05.0.zip)
+<br />
 
-> **Quick Setup:** Click the orange button above to immediately download the `.zip` package, extract it to a folder, and run **`OpenWidget.exe`**.
+[![Download OpenWidget v3.1](https://img.shields.io/badge/DOWNLOAD%20v3.1-OpenWidget%20ZIP-E2925C?style=for-the-badge&logo=windows)](https://github.com/safeapricot/openwidget-windows/releases/download/v3.1/OpenWidget-v3.1.zip)
 
-## Live Preview
+*Download the `.zip`, extract anywhere, and run **`OpenWidget.exe`**.*
 
-<p align="center">
-  <img src="preview.png" alt="OpenWidget Windows Desktop Preview" width="1100" />
-</p>
+<br />
+
+<img src="preview.jpg" alt="OpenWidget Desktop Preview" width="960" />
+
+</div>
 
 ---
 
-## Overview
+## Featured: Live Wireless Battery Right on Your Taskbar
 
-**OpenWidget** is a single-file, zero-dependency native Windows desktop widget written in C# & WPF with direct Win32, DisplayConfig SDR/DDC, USB HID, CoreAudio COM, and NVIDIA NVML C-API calls. Unlike Electron or web-based widgets that consume 300–500 MB of RAM, OpenWidget is compiled into a **~434 KB native executable** (including embedded multi-resolution icons) and uses minimal RAM with **0.0% idle CPU**.
+<div align="center">
+  <img src="taskbar-preview.png" alt="OpenWidget Taskbar Wireless Battery Overlay" width="240" />
+</div>
 
-### Key Features
-- **Interactive First-Run Setup Wizard:**
-  - Automatically launches on first run (or via `--setup`).
-  - **Weather Location Choice:** Auto-detect via **GPS / Location Services**, or type any **City / District** worldwide (e.g., `London`, `New York`, `Istanbul / Kadikoy`).
-  - **Optional Companion Widgets, Theme Color & Shortcuts:** Pick your favorite accent color, optionally enable Calendar/Timer widgets (off by default), create a Desktop shortcut, and enable Instant Windows Startup.
-- **Optional Calendar, Timer & Taskbar Device Widgets (Default Off):**
-  - **Calendar Widget:** Floating mini-month calendar & daily agenda with private iCal (`.ics`) feed support, multi-monitor position memory, and quick event entry. Toggle anytime via **Settings -> Widgets** or System Tray.
-  - **Timer Widgeti:** Includes Stopwatch (`Default`), Gaming/Entertainment mode (with automatic game detection), customizable Pomodoro focus mode, custom Study/Gaming colors, **10h proportional day squares** (with **8h PC uptime saturation** for the remaining default portion), a **Detailed Day View** showing per-game breakdown, **`[+]` manual time entry**, and **power-loss-safe atomic storage** (`WriteThrough` + `.bak` auto-recovery).
-  - **Taskbar Wireless Battery Indicator:** Optionally display live connected mouse & headset battery percentages directly on the Windows taskbar (**Settings -> Widgets**).
-- **Modern 3-Tab Scrollable Settings Window (`Appearance`, `Widgets`, `Modules`):**
-  - Redesigned with a sticky header, 3 clean tabs, responsive non-overlapping cards, and sleek theme-colored thin scrollbars and sliders.
-- **Instant Windows Boot & Cold-Launch Optimization:**
-  - Uses multi-core background JIT (`ProfileOptimization`), asynchronous CoreAudio/NVML/hardware initialization, and disables Windows Explorer's 10-second `Serialize` startup throttle when Windows auto-start is enabled.
-- **Auto-Detected Monitor Brightness Control (HDR SDR White Level & DDC/CI):**
-  - Automatically detects connected monitors and their friendly model names, adding smooth brightness sliders (`0%–100%`), mouse-wheel step control (`±5%`), **`Linked / Separate`** multi-monitor sync toggle, and instant presets (`15%`, `40%`, `75%`, `100%`).
-  - **HDR Lock Bypass:** Automatically uses Windows native **SDR Content Brightness (`DisplayConfigSetDeviceInfo`)** on HDR-enabled displays (where hardware VCP `0x10` is locked by monitor firmware) and hardware **DDC/CI (`dxva2.dll`)** on standard SDR displays — replacing 140 MB Electron brightness utilities with zero background overhead.
-- **Customizable Layout, Drag-and-Drop Reordering & Granular Visibility (`Layout & Modules`):**
-  - Open **Settings -> Layout & Modules** to individually toggle **Weather**, **Monitor Brightness**, **Wireless Devices**, **Telemetry**, and **Clipboard History** on or off.
-  - **Drag & Drop Reordering:** Hold and drag any module row (or use the up/down buttons) to customize the exact vertical order of sections on your widget.
-  - **Granular Telemetry Toggles:** Individually show or hide **CPU**, **RAM**, **GPU**, **VRAM**, **Network & Ping**, and **Drives** inside the Telemetry card.
-- **Live Weather & 3-Day Forecast (°C / °F):** Current temperature, feels-like, humidity, wind speed, precipitation, and 3-day min/max forecast powered by Open-Meteo (no API key required), with instant **Celsius (`°C`) / Fahrenheit (`°F`)** switching in Settings.
-- **Auto-Detected Wireless Peripherals Battery & Polling Rate Telemetry:**
-  - Automatically detects connected wireless **Mice**, **Keyboards**, **Headsets**, and **Controllers/Gamepads** with live battery status colors (**green while charging**, **red at `≤ 10%`**) and an optional **Windows low-battery notification (`≤ 10%`)**.
-  - Supports **Logitech HID++ 2.0 / 1.0** (Unifying, Bolt, LIGHTSPEED, G Headsets), **Razer** (90-byte HyperSpeed Feature Report + BlackShark V2 HyperSpeed), **Corsair** (Void/HS70/HS80, Bragi/Slipstream, CompX), **SteelSeries** (Arctis & Nova 3/5/7/Pro), **HyperX** wireless headsets, **CompX / ATK / VXE / Scyrox** 2.4GHz/NearLink mice (including **Polling Rate `125 Hz – 8000 Hz`** & voltage), **Windows Native Bluetooth / BLE**, **Generic USB HID Battery**, and **XInput / DirectInput Gamepads** — zero manufacturer bloatware needed.
-  - Automatically hides offline/disconnected devices (and hides the entire section if no wireless peripherals are active).
-- **Zero-Overhead Hardware Telemetry (Auto-Detects Your PC):**
-  - **CPU:** Automatically detects your processor model name, live utilization, sparkline graph, and temperature (`°C` shown ahead of processor name for laptop compatibility).
-  - **RAM:** Live physical memory usage & progress bar via Win32 `GlobalMemoryStatusEx`.
-  - **GPU & VRAM:** Direct `nvml.dll` C-API integration for NVIDIA GPUs (zero `nvidia-smi.exe` subprocess spawning).
-  - **Network & Ping:** Real-time download/upload bitrate (`Mbps` / `Kbps`) and live latency (`ms`) badge.
-  - **Disks:** Automatically detects all fixed drives (`C:`, `D:`, etc.) with free/total capacity and usage bars.
-- **System Tray One-Click Microphone Mute (`CoreAudio`):**
-  - Left-click the microphone icon in the System Tray (or press **`Ctrl + Shift + M`** anywhere, or click the mic button in the widget header) to instantly mute/unmute your default Windows microphone.
-- **Event-Driven Clipboard History:**
-  - Listens to OS clipboard events via `AddClipboardFormatListener` (zero polling). Click any recent entry to copy it again, or clear the list with a single click.
-- **2D Interactive Spectrum Color Picker & Opacity Control:**
-  - Open Settings to drag across a live 2D HSV color spectrum, enter a custom `#HEX` code, open the full color palette dialog, or adjust frosted-glass background opacity (`30%–100%`).
-- **`Win + D` (Show Desktop) Immunity & High-DPI Sharpness:**
-  - Stays pinned to your desktop even when pressing `Win + D`. Per-Monitor DPI V2 aware for razor-sharp ClearType text on 1080p, 2K (1440p), and 4K displays.
+See real-time battery percentages for your **wireless mouse, headset, keyboard, and gamepad** directly on the **Windows Taskbar** — without opening bloated vendor apps like G HUB, Synapse, iCUE, or GG Engine.
 
-### Quick Start (Installation)
-1. Download **`OpenWidget-Public-Release.zip`** (or clone this repository).
-2. Pick your language, weather location mode (GPS or Manual City), and theme color, then click **Complete Setup & Launch OpenWidget**.
+- **Clean Status Colors:** **Green** while charging, **Red** at `≤ 10%` with an optional Windows low-battery alert.
+- **Smart Behavior:** Automatically hides during fullscreen games/videos and reappears on desktop.
+- **Broad Native Support:** **Logitech** (HID++ 2.0/1.0, LIGHTSPEED, Bolt, Unifying, G Headsets), **Razer** (HyperSpeed & BlackShark), **Corsair** (Bragi, Slipstream, Void/HS70/HS80), **SteelSeries** (Arctis & Nova), **HyperX**, **ATK / VXE / Scyrox / CompX** (with Polling Rate `125–8000 Hz` & voltage), **Bluetooth / BLE**, **Generic HID**, and **XInput/DirectInput**.
+- **Toggle Anytime:** Enable in **Settings → Widgets → Taskbar Device Batteries** or via the System Tray menu.
 
-### Building from Source (No Visual Studio Required)
-OpenWidget compiles out-of-the-box using the native .NET Framework 64-bit compiler built into every Windows 10/11 machine:
+---
+
+## Core Features
+
+- **Main Desktop Sidebar:**
+  - **Weather:** Live temperature, feels-like, humidity, wind, rain & 3-day forecast (`°C` / `°F`, auto-GPS or manual city, no API key needed).
+  - **Monitor Brightness:** Auto-detects all displays — supports **Windows HDR SDR White Level** (bypassing firmware brightness locks) + **DDC/CI**, `Linked / Separate` sync, mouse-wheel `±5%` control, and quick presets (`15%`, `40%`, `75%`, `100%`).
+  - **Wireless Devices:** Live battery levels, charging state & polling rate (`Hz`), hidden automatically when no wireless device is connected.
+  - **Hardware Telemetry:** Auto-detected **CPU** (model, temp, load & sparkline), **RAM**, **NVIDIA GPU & VRAM** (`nvml.dll` C-API), **Network & Ping**, and **Disks** — show/hide or drag-and-drop reorder any section.
+  - **Clipboard & Mic Mute:** Zero-polling clipboard history (`WM_CLIPBOARDUPDATE`) and instant **one-click System Tray / `Ctrl + Shift + M`** microphone mute.
+- **Activity Widget** *(Companion Window — enable in Settings → Widgets)*:
+  - **4 Modes:** **Default** (Stopwatch), **Gaming** (automatic game detection), **Study** (Pomodoro), and **Work** (click Study pill a second time to switch to Work Mode).
+  - **Yearly Heatmap & Breakdown:** 10h proportional day squares with distinct Study / Work / Gaming bands + 8h PC uptime background, Detailed Day View per game, **`[+]` manual time entry**, and **`[+]` Daily Journal** notes with power-loss-safe `.dat` + `.bak` storage.
+- **Calendar Widget** *(Companion Window — enable in Settings → Widgets)*:
+  - Mini monthly calendar + daily agenda with Google Calendar / private `.ics` feed sync and quick event creation.
+- **Native Polish:** Interactive 2D spectrum accent picker, opacity slider (`30%–100%`), `Win + D` (Show Desktop) immunity, Per-Monitor DPI crispness, and a quick first-run **Setup Wizard** (`EN / TR`).
+
+### Quick Start
+
+1. Download **`OpenWidget-v3.1.zip`** from the button above and extract it to a folder.
+2. Run **`OpenWidget.exe`**, pick your language (`EN`/`TR`), location, and optional companion widgets in the Setup Wizard.
+
+<details>
+<summary><b>Build from Source (No Visual Studio required)</b></summary>
+
 ```powershell
 & "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /target:winexe /optimize+ /platform:x64 /win32icon:app.ico /lib:"C:\Windows\Microsoft.NET\Framework64\v4.0.30319\WPF" /r:PresentationCore.dll /r:PresentationFramework.dll /r:WindowsBase.dll /r:System.Xaml.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:System.Management.dll /r:System.Device.dll /out:OpenWidget.exe OpenWidget.cs
 ```
 
+</details>
+
 ---
 
-## Genel Bakış
+## 🇹🇷 Kısa Türkçe Özet
 
-**OpenWidget**, gemini kankimle yaptığım ultra hafif bir masaüstü widget uygulamasıdır.
+**OpenWidget**, Windows 10/11 için tek bir **~448 KB `.exe`** dosyasından oluşan, sıfır kurulumlu ve **`%0.0` boşta CPU** tüketen yerel masaüstü widget'ıdır.
 
-### Öne Çıkan Özellikler
-- **Etkileşimli Kurulum Yardımcısı:**
-  - İlk açılışta otomatik olarak karşınıza çıkar (`--setup`):
-  - **Hava Durumu Konumu:** İster **Otomatik Algıla (GPS / Konum Servisi)** seçin, ister **Sabit İl / İlçe** (Örn: `İstanbul / Kadıköy`, `Ankara`, `Kütahya / Merkez`) yazın.
-  - **İsteğe Bağlı Ek Widget'lar, Tema ve Kısayollar:** Başlangıç tema renginizi seçin, isterseniz Takvim ve Timer widget'larını açın (varsayılan kapalıdır), Masaüstü kısayolu ve hızlı Windows başlangıç açılışını tek tıkla tamamlayın.
-- **İsteğe Bağlı Takvim, Timer & Taskbar Cihaz Göstergesi (Varsayılan Kapalı):**
-  - **Takvim Widget'ı:** Aylık mini takvim görünümü, günlük ajanda, `.ics` / iCal abonelik desteği, çoklu monitör konum hafızası ve hızlı etkinlik ekleme — istediğiniz zaman **Ayarlar → Ek Widget'lar** veya Sistem Tepsisi'nden açıp kapatabilirsiniz.
-  - **Timer Widgeti:** Normal zamanlayıcı, otomatik oyun algılamalı Eğlence/Oyun modu, bildirimli Pomodoro Ders modu, özelleştirilebilir Ders/Oyun renkleri, **10 saat kapasiteli oranlı gün kareleri** (kalan kısım için **8 saat PC açık kalma doygunluk** ölçeği), oyun bazlı **Gün Detayı** görünümü, **`[+]`** ile manuel süre ekleme ve **elektrik kesintisine dayanıklı atomik kayıt** (`WriteThrough` + `.bak` otomatik kurtarma).
-  - **Taskbar Kablosuz Pil Göstergesi:** Bağlı kablosuz kulaklık ve fare pil yüzdelerini doğrudan Windows görev çubuğunda gösterir (**Ayarlar → Ek Widget'lar**).
-- **Yenilenmiş 3 Sekmeli Ayarlar Menüsü & İnce Tema Renginde Slider/Scrollbar:**
-  - Sabit üst başlık, `Görünüm`, `Ek Widget'lar` ve `Modül Düzeni` sekmeleri, kaydırılabilir kart yapısı ve tema rengiyle güncellenen ince slider & kaydırma çubukları.
-- **Hızlı Windows Başlangıcı Optimizasyonu:**
-  - Çok çekirdekli arka plan JIT (`ProfileOptimization`), açılışı kilitlemeyen asenkron sürücü/ses/telemetri yüklemesi ve Windows otomatik başlatma aktifken Explorer başlangıç gecikmesini sıfırlama desteği.
-- **Monitör Parlaklığı Kontrolü:**
-  - Bağlı monitörlerinizi ve gerçek model isimlerini otomatik algılayarak her monitör için parlaklık slider'ı (`%0–%100`), fare tekerleği ile `±%5` hassas kontrol, **`Birlikte / Ayrı`** senkronizasyon modu ve hızlı mod butonları (`%15`, `%40`, `%75`, `%100`) ekler.
-  - **HDR Kilit Çözümü:** HDR açıkken donanımsal parlaklığı kilitleyen monitörlerde Windows'un yerel **SDR İçerik Parlaklığı (`DisplayConfigSetDeviceInfo`)** motorunu, standart SDR ekranlarda ise doğrudan **DDC/CI (`dxva2.dll`)** protokolünü sıfır gecikmeyle kullanır.
-- **Özelleştirilebilir Widget Düzeni & Sürükle-Bırak Sıralama (`Düzen & Modüller`):**
-  - **Ayarlar -> Düzen & Modüller** sekmesinden **Hava Durumu**, **Monitör Parlaklığı**, **Kablosuz Cihazlar**, **Telemetri** ve **Pano Geçmişi** bölümlerinden hangilerinin gösterileceğini tek tıkla seçebilirsiniz.
-  - **Tut-Bırak (Drag & Drop) Sıralama:** Modülleri basılı tutup yukarı/aşağı sürükleyerek (veya yukarı/aşağı butonlarıyla) widget üzerindeki sıralamasını istediğiniz gibi değiştirebilirsiniz.
-  - **Detaylı Telemetri Seçimi:** Telemetri kartı içindeki **İşlemci (CPU)**, **Bellek (RAM)**, **Ekran Kartı (GPU)**, **Video Belleği (VRAM)**, **Ağ Trafiği** ve **Diskler** satırlarını ayrı ayrı açıp kapatabilirsiniz.
-- **Canlı Hava Durumu & 3 Günlük Tahmin (°C / °F):** Anlık sıcaklık, hissedilen sıcaklık, nem, rüzgar, yağış ve 3 günlük tahmin (Ayarlar'dan **Celsius `°C` / Fahrenheit `°F`** seçimi ile).
-- **Otomatik Kablosuz Cihaz (Fare, Klavye, Kulaklık, Kumanda) Şarj & Hz Takibi:**
-  - Bağlı kablosuz **Fare**, **Klavye**, **Kulaklık** ve **Oyun Kumandalarını** otomatik algılar; **şarjda yeşil**, **`%10` ve altında kırmızı** renklendirir ve isteğe bağlı **düşük pil (`≤ %10`) Windows bildirimi** gönderir.
-  - **Logitech HID++ 2.0/1.0** (Unifying, Bolt, LIGHTSPEED, G kulaklıklar), **Razer** (HyperSpeed + BlackShark V2 HyperSpeed), **Corsair** (Void/HS70/HS80, Bragi/Slipstream, CompX), **SteelSeries** (Arctis & Nova 3/5/7/Pro), **HyperX** kulaklıklar, **CompX / ATK / VXE / Scyrox** 2.4GHz/NearLink fareler (**Polling Rate `125 Hz – 8000 Hz`** & voltaj dahil), **Bluetooth / BLE**, **Generic USB HID** ve **XInput/DirectInput** kumandalarını üretici yazılımı gerektirmeden doğrudan okur.
-  - Bağlantısı kesik cihazları otomatik gizler; aktif kablosuz cihaz yoksa bölüm tamamen gizlenir.
-- **Her Bilgisayara Uyumlu Canlı Donanım Telemetrisi:**
-  - Bilgisayarınızdaki **İşlemci (CPU)** adını, **Ekran Kartı (GPU)** modelini (`nvml.dll` doğrudan C-API), **RAM / VRAM** kullanımını, **Ağ Trafiği & Ping** değerlerini ve takılı olan sabit **Disklerinizi (`C:`, `D:` vb.)** otomatik algılar.
-- **Sistem Tepsisi (System Tray) Tek Tık Mikrofon Susturma:**
-  - Sağ alttaki mikrofon ikonuna sol tıklayarak, widget üzerindeki mikrofon butonuna basarak veya klavyeden **`Ctrl + Shift + M`** kısayoluyla mikrofonunuzu anında susturup açabilirsiniz.
-- **Olay Güdümlü (Event-Driven) Pano Geçmişi:**
-  - Kopyaladığınız son 8 metni sıfır işlemci yüküyle (`WM_CLIPBOARDUPDATE`) listeler; üzerine tıkladığınız metni tekrar panoya kopyalar.
-- **Canlı Spektrum Renk Seçici & Saydamlık Ayarı:**
-  - Ayarlar menüsünden 2 boyutlu renk spektrumu üzerinden istediğiniz rengi sürükleyerek seçebilir, `#HEX` kodu girebilir ve arka plan saydamlığını (`%30–%100`) değiştirebilirsiniz.
-- **`Win + D` (Masaüstünü Göster) Koruması:**
-  - Masaüstünü göster'e bastığınızda gitmez. Ana sayfadaki herhangi bir widget gibi.
-
-### Kurulum ve Kullanım
-1. **`OpenWidget-Public-Release.zip`** dosyasını indirin ve bir klasöre çıkartın.
-2. Konum tercihinizi ve tema renginizi seçip başlatın.
+- **Görev Çubuğunda Kablosuz Pil Göstergesi:** Kablosuz fare, kulaklık, klavye ve kumanda şarj yüzdelerini ekstra sürücü yazılımı olmadan doğrudan Windows taskbar'ında gösterir (**şarjda yeşil**, **`≤ %10` kırmızı + isteğe bağlı düşük pil bildirimi**; tam ekranda otomatik gizlenir). **Ayarlar → Ek Widget'lar** kısmından tek tıkla açabilirsiniz.
+- **Ana Widget:** Canlı **Hava Durumu** (`°C/°F`), **Monitör Parlaklığı** (HDR SDR + DDC/CI, `Birlikte/Ayrı` kontrol), **Kablosuz Cihazlar**, **Donanım Telemetrisi** (CPU/RAM/GPU/VRAM/Ağ & Ping/Diskler), **Pano Geçmişi** ve **Sistem Tepsisi / `Ctrl + Shift + M`** tek tık mikrofon susturma; tüm modüller **sürükle-bırak** ile sıralanabilir.
+- **Aktivite & Takvim Widget'ları** *(Ek Widget'lardan isteğe bağlı açılır)*:
+  - **Aktivite Widgeti:** `Default`, otomatik oyun algılayan **Eğlence**, **Ders** (Pomodoro) ve **İş Modu** (Ders butonuna 2. tıkta açılır), başlıkta **`[+]` Günlük notu ekleme**, günlere detaylı oyun/not bakışı, manuel süre ekleme ve yıllık ısı haritası.
+  - **Takvim Widget'ı:** Mini aylık takvim, günlük ajanda ve Google Takvim (`.ics`) senkronizasyonu.
+- **Kurulum:** [OpenWidget-v3.1.zip](https://github.com/safeapricot/openwidget-windows/releases/download/v3.1/OpenWidget-v3.1.zip) dosyasını indirip klasöre çıkarın ve `OpenWidget.exe`'yi çalıştırın.
 
 ---
 
 ## License
+
 MIT License — Created by [@safeapricot](https://github.com/safeapricot).
