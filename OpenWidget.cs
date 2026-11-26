@@ -3486,7 +3486,7 @@ namespace OpenWidget
             };
             chkWizardTimer = new CheckBox
             {
-                Content = "⏱ Timer Widgeti'ni Aç (Zamanlayıcı, Oyun Modu, Pomodoro & Yıllık Aktivite)",
+                Content = "⏱ Aktivite Widgeti'ni Aç (Zamanlayıcı, Oyun Modu, Pomodoro, Günlük & Yıllık Aktivite)",
                 Foreground = HexBrush("#FAF6F2"),
                 FontSize = 11.5,
                 IsChecked = false,
@@ -3579,8 +3579,8 @@ namespace OpenWidget
                 ? "📅 Enable Calendar Widget (Monthly view, iCal sync & events)"
                 : "📅 Google Takvim Widget'ını Aç (Aylık takvim, iCal & etkinlikler)";
             chkWizardTimer.Content = en
-                ? "⏱ Enable Timer Widget (Stopwatch, Auto Game Mode, Pomodoro & Heatmap)"
-                : "⏱ Timer Widgeti'ni Aç (Zamanlayıcı, Oyun Modu, Pomodoro & Yıllık Aktivite)";
+                ? "⏱ Enable Activity Widget (Stopwatch, Auto Game Mode, Pomodoro, Journal & Heatmap)"
+                : "⏱ Aktivite Widgeti'ni Aç (Zamanlayıcı, Oyun Modu, Pomodoro, Günlük & Yıllık Aktivite)";
             txtStep4.Text = en ? "4. System & Shortcut Options" : "4. Sistem ve Kısayol Seçenekleri";
             chkDesktopShortcut.Content = en
                 ? "Create OpenWidget shortcut on Desktop"
@@ -4561,7 +4561,7 @@ namespace OpenWidget
         private double savedTimerHeight = 310;
         private double savedTimerLeft = double.NaN;
         private double savedTimerTop = double.NaN;
-        private int timerCurrentMode = 0;
+        private int timerCurrentMode = 0; // 0 = Default, 1 = Gaming, 2 = Study, 3 = Work
         private bool defaultTimerIsRunning = false;
         private int defaultTimerSeconds = 0;
         private bool gameTimerIsRunning = false;
@@ -4581,6 +4581,7 @@ namespace OpenWidget
         private WindowChrome timerWindowChrome;
         private Border timerResizeGrip;
         private Button btnTimerLockDrag;
+        private Button btnTimerJournalAdd;
         private Button[] btnTimerModes = new Button[3];
         private Border timerPomoSettingsPopup;
         private TextBlock txtTimerDialPhase;
@@ -4635,14 +4636,16 @@ namespace OpenWidget
         private struct TaskbarDeviceItem { public string Kind; public string Name; public int Pct; public string Detail; public bool IsCharging; }
         private readonly List<TaskbarDeviceItem> latestTaskbarDevices = new List<TaskbarDeviceItem>();
 
-        // Custom Timer Mode Colors & Settings / Detailed View Windows
+        // Custom Timer Mode Colors & Settings / Detailed View / Journal Windows
         private string timerStudyColorHex = "#2EA043";
+        private string timerWorkColorHex = "#1D4ED8";
         private string timerGameColorHex = "#A78BFA";
         private Border timerStudyStatBar;
         private Border timerGameStatBar;
         private Border timerPcStatBar;
         private Window timerSettingsWindow;
         private Window timerDetailedWindow;
+        private Window dailyJournalWindow;
         private Action refreshTimerSettingsPreviewAction;
         private Action refreshTimerDetailedViewAction;
 
@@ -4735,8 +4738,10 @@ namespace OpenWidget
         {
             public DateTime Date;
             public int StudySeconds;
+            public int WorkSeconds;
             public int GameSeconds;
             public int PcSeconds;
+            public string JournalNote = "";
             public Dictionary<string, int> GameBreakdown = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         }
 
@@ -5115,6 +5120,10 @@ namespace OpenWidget
                             {
                                 timerStudyColorHex = v;
                             }
+                            else if (k == "TimerWorkColor" && v.StartsWith("#") && (v.Length == 7 || v.Length == 9))
+                            {
+                                timerWorkColorHex = v;
+                            }
                             else if (k == "TimerGameColor" && v.StartsWith("#") && (v.Length == 7 || v.Length == 9))
                             {
                                 timerGameColorHex = v;
@@ -5180,6 +5189,7 @@ namespace OpenWidget
                 sb.AppendLine("ShowTaskbarDevices=" + (showTaskbarDevices ? "1" : "0"));
                 sb.AppendLine("NotifyLowBattery=" + (notifyLowBattery ? "1" : "0"));
                 sb.AppendLine("TimerStudyColor=" + timerStudyColorHex);
+                sb.AppendLine("TimerWorkColor=" + timerWorkColorHex);
                 sb.AppendLine("TimerGameColor=" + timerGameColorHex);
                 WriteAllTextAtomic(settingsFilePath, sb.ToString(), new UTF8Encoding(false));
             }
@@ -6922,8 +6932,8 @@ namespace OpenWidget
             menu.Items.Add(trayCalendarItem);
 
             trayTimerItem = new System.Windows.Forms.ToolStripMenuItem(showTimerWidget
-                ? L("⏱ Timer Widgeti'ni Gizle", "⏱ Hide Timer Widget")
-                : L("⏱ Timer Widgeti'ni Göster", "⏱ Show Timer Widget"));
+                ? L("⏱ Aktivite Widgeti'ni Gizle", "⏱ Hide Activity Widget")
+                : L("⏱ Aktivite Widgeti'ni Göster", "⏱ Show Activity Widget"));
             trayTimerItem.Click += (s, e) => SetTimerWidgetVisible(!showTimerWidget);
             menu.Items.Add(trayTimerItem);
 
@@ -7169,7 +7179,7 @@ namespace OpenWidget
                 if (trayMuteItem != null) trayMuteItem.Text = L("🎙 Mikrofonu Sustur / Aç (Sol Tık)", "🎙 Mute / Unmute Microphone (Left Click)");
                 if (traySettingsItem != null) traySettingsItem.Text = L("⚙ Widget Ayarları (Dil, Konum, Tema & Düzen)...", "⚙ Widget Settings (Language, Location, Theme & Layout)...");
                 if (trayCalendarItem != null) trayCalendarItem.Text = showCalendarWidget ? L("📅 Takvim Widget'ını Gizle", "📅 Hide Calendar Widget") : L("📅 Takvim Widget'ını Göster", "📅 Show Calendar Widget");
-                if (trayTimerItem != null) trayTimerItem.Text = showTimerWidget ? L("⏱ Timer Widgeti'ni Gizle", "⏱ Hide Timer Widget") : L("⏱ Timer Widgeti'ni Göster", "⏱ Show Timer Widget");
+                if (trayTimerItem != null) trayTimerItem.Text = showTimerWidget ? L("⏱ Aktivite Widgeti'ni Gizle", "⏱ Hide Activity Widget") : L("⏱ Aktivite Widgeti'ni Göster", "⏱ Show Activity Widget");
                 if (trayTaskbarDevicesItem != null) trayTaskbarDevicesItem.Text = showTaskbarDevices ? L("🔋 Görev Çubuğu Cihaz Şarjlarını Gizle", "🔋 Hide Taskbar Device Batteries") : L("🔋 Görev Çubuğu Cihaz Şarjlarını Göster", "🔋 Show Taskbar Device Batteries");
                 if (trayLockItem != null)
                 {
@@ -7509,7 +7519,7 @@ namespace OpenWidget
             };
             string[] tabTips = {
                 L("Dil, hava durumu konumu, tema rengi ve saydamlık", "Language, weather location, theme color & opacity"),
-                L("Takvim Widget ve Timer Widget eklentileri", "Calendar Widget & Timer Widget companions"),
+                L("Takvim Widget ve Aktivite Widgeti eklentileri", "Calendar Widget & Activity Widget companions"),
                 L("Ana widget modül sıralaması ve telemetri öğeleri", "Main widget module order & telemetry metrics")
             };
             for (int ti = 0; ti < 3; ti++)
@@ -8078,7 +8088,7 @@ namespace OpenWidget
             calCompanionCard.Child = calCompanionStack;
             tabPanels[1].Children.Add(calCompanionCard);
 
-            // Standalone Timer Widget Companion Card
+            // Standalone Activity Widget Companion Card
             Border timerCompanionCard = new Border
             {
                 CornerRadius = new CornerRadius(11),
@@ -8095,7 +8105,7 @@ namespace OpenWidget
             StackPanel timerCompanionInfo = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0) };
             timerCompanionInfo.Children.Add(new TextBlock
             {
-                Text = L("⏱ Timer Widgeti", "⏱ Timer Widget"),
+                Text = L("⏱ Aktivite Widgeti", "⏱ Activity Widget"),
                 Foreground = HexBrush("#FAF6F2"),
                 FontSize = 12,
                 FontWeight = FontWeights.Bold,
@@ -8103,7 +8113,7 @@ namespace OpenWidget
             });
             timerCompanionInfo.Children.Add(new TextBlock
             {
-                Text = L("Normal zamanlayıcı, otomatik oyun algılayan Eğlence Modu, Pomodoro ve yıllık aktivite ısı haritası", "Stopwatch, auto game-detecting Gaming mode, Study Pomodoro & yearly activity heatmap"),
+                Text = L("Normal zamanlayıcı, otomatik oyun algılayan Eğlence Modu, Pomodoro, günlük not ve yıllık aktivite ısı haritası", "Stopwatch, auto game-detecting Gaming mode, Study Pomodoro, daily journal & yearly activity heatmap"),
                 Foreground = HexBrush("#9E8E82"),
                 FontSize = 10.5,
                 TextWrapping = TextWrapping.Wrap,
@@ -8115,7 +8125,7 @@ namespace OpenWidget
             Button btnToggleTimerWidget = CreateStyledIconButton(
                 showTimerWidget ? "#38281E" : "#1D1815",
                 showTimerWidget ? accentColorHex : "#3E322B",
-                L("Timer masaüstü widget'ını aç veya kapat", "Enable or disable the Timer desktop widget"));
+                L("Aktivite masaüstü widget'ını aç veya kapat", "Enable or disable the Activity desktop widget"));
             btnToggleTimerWidget.Padding = new Thickness(11, 5, 11, 5);
             btnToggleTimerWidget.MinWidth = 72;
             btnToggleTimerWidget.VerticalAlignment = VerticalAlignment.Center;
@@ -11913,8 +11923,8 @@ namespace OpenWidget
             if (trayTimerItem != null)
             {
                 trayTimerItem.Text = showTimerWidget
-                    ? L("⏱ Timer Widgeti'ni Gizle", "⏱ Hide Timer Widget")
-                    : L("⏱ Timer Widgeti'ni Göster", "⏱ Show Timer Widget");
+                    ? L("⏱ Aktivite Widgeti'ni Gizle", "⏱ Hide Activity Widget")
+                    : L("⏱ Aktivite Widgeti'ni Göster", "⏱ Show Activity Widget");
             }
             if (timerWindow == null && showTimerWidget)
             {
@@ -11962,12 +11972,38 @@ namespace OpenWidget
                         int.TryParse(p[2], out gm) &&
                         int.TryParse(p[3], out pc))
                     {
+                        int wk = 0;
+                        if (p.Length >= 6 && !string.IsNullOrWhiteSpace(p[5]))
+                        {
+                            int parsedWk;
+                            if (int.TryParse(p[5], out parsedWk)) wk = Math.Max(0, parsedWk);
+                        }
+                        string note = "";
+                        if (p.Length >= 7 && !string.IsNullOrWhiteSpace(p[6]))
+                        {
+                            string rawNote = p[6].Trim();
+                            if (rawNote.StartsWith("b64:", StringComparison.Ordinal))
+                            {
+                                try
+                                {
+                                    byte[] rawBytes = Convert.FromBase64String(rawNote.Substring(4));
+                                    note = Encoding.UTF8.GetString(rawBytes);
+                                }
+                                catch { }
+                            }
+                            else
+                            {
+                                note = rawNote;
+                            }
+                        }
                         DailyActivityRecord rec = new DailyActivityRecord
                         {
                             Date = dt.Date,
                             StudySeconds = Math.Max(0, st),
+                            WorkSeconds = wk,
                             GameSeconds = Math.Max(0, gm),
-                            PcSeconds = Math.Max(0, pc)
+                            PcSeconds = Math.Max(0, pc),
+                            JournalNote = note
                         };
                         if (p.Length >= 5 && !string.IsNullOrWhiteSpace(p[4]))
                         {
@@ -12088,22 +12124,38 @@ namespace OpenWidget
                 {
                     DailyActivityRecord r = rows[i];
                     if (r.Date < cutoff) continue;
-                    if (r.StudySeconds == 0 && r.GameSeconds == 0 && r.PcSeconds == 0) continue;
+                    string trimmedNote = string.IsNullOrWhiteSpace(r.JournalNote) ? "" : r.JournalNote.Trim();
+                    bool hasNote = trimmedNote.Length > 0;
+                    if (r.StudySeconds == 0 && r.WorkSeconds == 0 && r.GameSeconds == 0 && r.PcSeconds == 0 && !hasNote) continue;
                     sb.Append(r.Date.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture))
                       .Append('|').Append(r.StudySeconds)
                       .Append('|').Append(r.GameSeconds)
                       .Append('|').Append(r.PcSeconds);
+
+                    StringBuilder gamesSb = new StringBuilder();
                     if (r.GameBreakdown != null && r.GameBreakdown.Count > 0)
                     {
-                        sb.Append('|');
                         bool first = true;
                         foreach (var kv in r.GameBreakdown)
                         {
                             if (kv.Value <= 0) continue;
-                            if (!first) sb.Append(';');
-                            sb.Append(SanitizeGameKey(kv.Key)).Append('=').Append(kv.Value);
+                            if (!first) gamesSb.Append(';');
+                            gamesSb.Append(SanitizeGameKey(kv.Key)).Append('=').Append(kv.Value);
                             first = false;
                         }
+                    }
+
+                    if (gamesSb.Length > 0 || r.WorkSeconds > 0 || hasNote)
+                    {
+                        sb.Append('|').Append(gamesSb.ToString());
+                    }
+                    if (r.WorkSeconds > 0 || hasNote)
+                    {
+                        sb.Append('|').Append(r.WorkSeconds);
+                    }
+                    if (hasNote)
+                    {
+                        sb.Append("|b64:").Append(Convert.ToBase64String(Encoding.UTF8.GetBytes(trimmedNote)));
                     }
                     sb.AppendLine();
                 }
@@ -12130,7 +12182,7 @@ namespace OpenWidget
 
             timerWindow = new Window
             {
-                Title = L("OpenWidget • Timer Widgeti", "OpenWidget • Timer Widget"),
+                Title = L("OpenWidget • Aktivite Widgeti", "OpenWidget • Activity Widget"),
                 MinWidth = 460,
                 MinHeight = 275,
                 Width = savedTimerWidth,
@@ -12281,13 +12333,29 @@ namespace OpenWidget
             StackPanel titleStack = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
             titleStack.Children.Add(new TextBlock
             {
-                Text = L("⏱ Timer Widgeti", "⏱ Timer Widget"),
+                Text = L("⏱ Aktivite Widgeti", "⏱ Activity Widget"),
                 Foreground = HexBrush("#FAF6F2"),
                 FontSize = 11.5,
                 FontWeight = FontWeights.Bold,
                 VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 10, 0)
+                Margin = new Thickness(0, 0, 5, 0)
             });
+            btnTimerJournalAdd = CreateStyledIconButton("#2E2520", "#4A3C34", L("Bugün için günlük notu ekle / düzenle", "Add / edit today's journal note"));
+            btnTimerJournalAdd.Width = 20;
+            btnTimerJournalAdd.Height = 19;
+            btnTimerJournalAdd.Padding = new Thickness(0);
+            btnTimerJournalAdd.Margin = new Thickness(0, 0, 8, 0);
+            btnTimerJournalAdd.Tag = "Interactive";
+            btnTimerJournalAdd.Content = new TextBlock
+            {
+                Text = "+",
+                FontSize = 11.5,
+                FontWeight = FontWeights.Bold,
+                Foreground = HexBrush("#FAF6F2"),
+                Margin = new Thickness(0, -1.5, 0, 0)
+            };
+            btnTimerJournalAdd.Click += (s, e) => OpenDailyJournalWindow(DateTime.Today);
+            titleStack.Children.Add(btnTimerJournalAdd);
             Grid.SetColumn(titleStack, 0);
             topBar.Children.Add(titleStack);
 
@@ -12302,7 +12370,7 @@ namespace OpenWidget
             string[] modeTips = {
                 L("Default Mod (Normal zamanlayıcı)", "Default Mode (Standard stopwatch timer)"),
                 L("Eğlence / Oyun Modu (Oyun oynarken geçen süre günlük kaydedilir)", "Gaming Mode (Tracks daily gaming time)"),
-                L("Ders / Pomodoro Modu (Pomodoro & günlük çalışma süresi)", "Study Mode (Pomodoro & daily study time)")
+                L("Ders / İş Modu (1. tık: Ders Modu, 2. tık: İş Modu)", "Study / Work Mode (1st click: Study, 2nd click: Work)")
             };
             for (int i = 0; i < 3; i++)
             {
@@ -12330,7 +12398,7 @@ namespace OpenWidget
                 VerticalAlignment = VerticalAlignment.Center,
                 Tag = "Interactive"
             };
-            Button btnPomoSettings = CreateStyledIconButton("#26201D", "Transparent", L("Timer ayarları, renkler ve günlere detaylı bakış", "Timer settings, mode colors & detailed day view"));
+            Button btnPomoSettings = CreateStyledIconButton("#26201D", "Transparent", L("Aktivite ayarları, renkler ve günlere detaylı bakış", "Activity settings, mode colors & detailed day view"));
             btnPomoSettings.Padding = new Thickness(7, 3, 7, 3);
             btnPomoSettings.Margin = new Thickness(6, 0, 4, 0);
             btnPomoSettings.Content = new TextBlock { Text = L("⚙ Ayarlar", "⚙ Config"), Foreground = HexBrush("#C7B9AE"), FontSize = 10, FontWeight = FontWeights.SemiBold };
@@ -12660,6 +12728,7 @@ namespace OpenWidget
             timerPomoSettingsPopup.Child = psStack;
 
             Border statStudyCard = CreateTimerStatCard(timerStudyColorHex, L("📚 Bugün Çalışılan", "📚 Studied Today"), out txtTodayStudyVal, out timerStudyStatBar);
+            timerStudyStatBar.Background = BuildSplitBrush(timerStudyColorHex, timerWorkColorHex, true);
             Border statGameCard = CreateTimerStatCard(timerGameColorHex, L("🎮 Bugün Oyun Oynanan", "🎮 Played Today"), out txtTodayGameVal, out timerGameStatBar);
             Border statPcCard = CreateTimerStatCard(accentColorHex, L("🖥 Bilgisayar Açık Kalma", "🖥 PC Uptime Today"), out txtTodayPcVal, out timerPcStatBar, true);
             Grid.SetRow(statStudyCard, 0);
@@ -12951,7 +13020,24 @@ namespace OpenWidget
             catch { }
         }
 
-        private Brush BuildStackedHourBrush(int studySec, int gameSec, int pcSec)
+        private Brush BuildSplitBrush(string hex1, string hex2, bool vertical)
+        {
+            Color c1 = ParseColor(hex1);
+            Color c2 = ParseColor(hex2);
+            LinearGradientBrush lg = new LinearGradientBrush
+            {
+                StartPoint = new Point(0, 0),
+                EndPoint = vertical ? new Point(0, 1) : new Point(1, 1)
+            };
+            lg.GradientStops.Add(new GradientStop(c1, 0.0));
+            lg.GradientStops.Add(new GradientStop(c1, 0.5));
+            lg.GradientStops.Add(new GradientStop(c2, 0.5));
+            lg.GradientStops.Add(new GradientStop(c2, 1.0));
+            lg.Freeze();
+            return lg;
+        }
+
+        private Brush BuildStackedHourBrush(int studySec, int workSec, int gameSec, int pcSec)
         {
             Color emptyDark = Color.FromRgb(34, 29, 26);
             Color accent = ParseColor(accentColorHex);
@@ -12961,8 +13047,9 @@ namespace OpenWidget
             Color defaultCol = BlendColors(emptyDark, accent, uptimeRatio, 255);
 
             double studyHours = Math.Max(0, studySec) / 3600.0;
+            double workHours = Math.Max(0, workSec) / 3600.0;
             double gameHours = Math.Max(0, gameSec) / 3600.0;
-            double totalHours = studyHours + gameHours;
+            double totalHours = studyHours + workHours + gameHours;
 
             if (totalHours <= 0.0)
             {
@@ -12971,19 +13058,13 @@ namespace OpenWidget
                 return sb;
             }
 
-            double studyFrac, gameFrac;
-            if (totalHours >= 10.0)
-            {
-                studyFrac = studyHours / totalHours;
-                gameFrac = gameHours / totalHours;
-            }
-            else
-            {
-                studyFrac = studyHours / 10.0;
-                gameFrac = gameHours / 10.0;
-            }
+            double denom = totalHours >= 10.0 ? totalHours : 10.0;
+            double studyFrac = studyHours / denom;
+            double workFrac = workHours / denom;
+            double gameFrac = gameHours / denom;
 
             Color studyCol = ParseColor(timerStudyColorHex);
+            Color workCol = ParseColor(timerWorkColorHex);
             Color gameCol = ParseColor(timerGameColorHex);
 
             LinearGradientBrush lg = new LinearGradientBrush { StartPoint = new Point(0, 1), EndPoint = new Point(0, 0) };
@@ -12993,6 +13074,13 @@ namespace OpenWidget
                 double next = Math.Min(1.0, cur + studyFrac);
                 lg.GradientStops.Add(new GradientStop(studyCol, cur));
                 lg.GradientStops.Add(new GradientStop(studyCol, next));
+                cur = next;
+            }
+            if (workFrac > 0.0005 && cur < 0.9999)
+            {
+                double next = Math.Min(1.0, cur + workFrac);
+                lg.GradientStops.Add(new GradientStop(workCol, cur));
+                lg.GradientStops.Add(new GradientStop(workCol, next));
                 cur = next;
             }
             if (gameFrac > 0.0005 && cur < 0.9999)
@@ -13015,8 +13103,8 @@ namespace OpenWidget
         {
             DailyActivityRecord rec;
             if (!activityByDate.TryGetValue(date.Date, out rec))
-                return BuildStackedHourBrush(0, 0, 0);
-            return BuildStackedHourBrush(rec.StudySeconds, rec.GameSeconds, rec.PcSeconds);
+                return BuildStackedHourBrush(0, 0, 0, 0);
+            return BuildStackedHourBrush(rec.StudySeconds, rec.WorkSeconds, rec.GameSeconds, rec.PcSeconds);
         }
 
         private string FormatDurationLocalized(int totalSeconds)
@@ -13043,13 +13131,20 @@ namespace OpenWidget
             DailyActivityRecord rec;
             activityByDate.TryGetValue(date.Date, out rec);
             int st = rec != null ? rec.StudySeconds : 0;
+            int wk = rec != null ? rec.WorkSeconds : 0;
             int gm = rec != null ? rec.GameSeconds : 0;
             int pc = rec != null ? rec.PcSeconds : 0;
 
             StringBuilder sb = new StringBuilder();
-            sb.AppendFormat("{0} {1} {2} {3}\n{4}: {5}\n{6}: {7}",
+            string workDetail = "";
+            if (st > 0 && wk > 0)
+                workDetail = string.Format(L(" (Ders: {0}, İş: {1})", " (Study: {0}, Work: {1})"), FormatDurationLocalized(st), FormatDurationLocalized(wk));
+            else if (wk > 0)
+                workDetail = L(" (İş)", " (Work)");
+
+            sb.AppendFormat("{0} {1} {2} {3}\n{4}: {5}{6}\n{7}: {8}",
                 date.Day, months[date.Month], date.Year, days[(int)date.DayOfWeek],
-                L("📚 Ders Çalışılan", "📚 Studied"), FormatDurationLocalized(st),
+                L("📚 Çalışma", "📚 Focus"), FormatDurationLocalized(st + wk), workDetail,
                 L("🎮 Oyun Oynanan", "🎮 Gaming"), FormatDurationLocalized(gm));
             if (rec != null && rec.GameBreakdown != null && rec.GameBreakdown.Count > 0)
             {
@@ -13062,19 +13157,33 @@ namespace OpenWidget
                     sb.AppendFormat("\n   • {0}: {1}", topGames[gi].Key, FormatDurationLocalized(topGames[gi].Value));
                 }
             }
-            sb.AppendFormat("\n{0}: {1}\n{2}",
-                L("🖥 Bilgisayar Açık", "🖥 PC Uptime"), FormatDurationLocalized(pc),
-                L("(Detay için tıklayın)", "(Click for details)"));
+            sb.AppendFormat("\n{0}: {1}",
+                L("🖥 Bilgisayar Açık", "🖥 PC Uptime"), FormatDurationLocalized(pc));
+            if (rec != null && !string.IsNullOrWhiteSpace(rec.JournalNote))
+            {
+                string oneLine = rec.JournalNote.Trim().Replace("\r\n", " ").Replace('\r', ' ').Replace('\n', ' ');
+                if (oneLine.Length > 70) oneLine = oneLine.Substring(0, 67) + "...";
+                sb.AppendFormat("\n{0}: {1}", L("📝 Günlük", "📝 Journal"), oneLine);
+            }
+            sb.AppendFormat("\n{0}", L("(Detay için tıklayın)", "(Click for details)"));
             return sb.ToString();
         }
 
         private void SwitchTimerMode(int newMode)
         {
-            if (newMode < 0 || newMode > 2) newMode = 0;
-            if (timerCurrentMode == newMode)
-                return;
+            if (newMode < 0 || newMode > 3) newMode = 0;
 
-            if (newMode != 1 && activeGamePid == 0)
+            int targetMode = newMode;
+            if (newMode == 2)
+            {
+                targetMode = (timerCurrentMode == 2) ? 3 : 2;
+            }
+            else if (timerCurrentMode == targetMode)
+            {
+                return;
+            }
+
+            if (targetMode != 1 && activeGamePid == 0)
             {
                 activeGameName = "";
             }
@@ -13082,7 +13191,7 @@ namespace OpenWidget
             defaultTimerIsRunning = false;
             gameTimerIsRunning = false;
             pomoIsRunning = false;
-            timerCurrentMode = newMode;
+            timerCurrentMode = targetMode;
 
             if (timerCurrentMode == 1)
             {
@@ -13092,7 +13201,13 @@ namespace OpenWidget
             {
                 if (pomoRemainingSeconds <= 0)
                     pomoRemainingSeconds = (pomoIsBreakPhase ? pomoBreakMinutes : pomoFocusMinutes) * 60;
-                ShowToast(L("📚 Ders Modu (Başlatmak için ▶ tuşuna basın)", "📚 Study Mode (Press ▶ to start)"));
+                ShowToast(L("📚 Ders Modu (İş Modu için tekrar tıklayın)", "📚 Study Mode (Click again for Work Mode)"));
+            }
+            else if (timerCurrentMode == 3)
+            {
+                if (pomoRemainingSeconds <= 0)
+                    pomoRemainingSeconds = (pomoIsBreakPhase ? pomoBreakMinutes : pomoFocusMinutes) * 60;
+                ShowToast(L("💼 İş Modu (Başlatmak için ▶ tuşuna basın)", "💼 Work Mode (Press ▶ to start)"));
             }
             else
             {
@@ -13354,20 +13469,22 @@ namespace OpenWidget
             SaveTimerActivityData();
             UpdateTimerWidgetUi();
 
-            if (prevMode == 2)
+            if (prevMode == 2 || prevMode == 3)
             {
+                string prevLabelTr = prevMode == 3 ? "İş" : "Ders";
+                string prevLabelEn = prevMode == 3 ? "Work" : "Study";
                 try { System.Media.SystemSounds.Hand.Play(); } catch { }
                 try
                 {
                     if (trayIcon != null)
                     {
-                        trayIcon.ShowBalloonTip(6000, L("⚠️ Ders Modunda Oyun Algılandı!", "⚠️ Game Detected During Study Mode!"),
+                        trayIcon.ShowBalloonTip(6000, L("⚠️ " + prevLabelTr + " Modunda Oyun Algılandı!", "⚠️ Game Detected During " + prevLabelEn + " Mode!"),
                             string.Format(L("{0} açıldığı için Pomodoro duraklatıldı ve otomatik olarak Eğlence Moduna geçildi!", "{0} launched! Pomodoro paused and switched to Gaming Mode."), detectedName),
                             System.Windows.Forms.ToolTipIcon.Warning);
                     }
                 }
                 catch { }
-                ShowToast(string.Format(L("⚠️ Ders modundayken oyun açıldı ({0})! Eğlence moduna geçildi.", "⚠️ Game opened in Study Mode ({0})! Switched to Gaming Mode."), detectedName));
+                ShowToast(string.Format(L("⚠️ " + prevLabelTr + " modundayken oyun açıldı ({0})! Eğlence moduna geçildi.", "⚠️ Game opened in " + prevLabelEn + " Mode ({0})! Switched to Gaming Mode."), detectedName));
             }
             else if (prevMode == 0)
             {
@@ -13433,11 +13550,12 @@ namespace OpenWidget
                 todayRec.GameBreakdown.TryGetValue(gKey, out prevGSec);
                 todayRec.GameBreakdown[gKey] = prevGSec + 1;
             }
-            else if (timerCurrentMode == 2 && pomoIsRunning)
+            else if ((timerCurrentMode == 2 || timerCurrentMode == 3) && pomoIsRunning)
             {
                 if (!pomoIsBreakPhase)
                 {
-                    todayRec.StudySeconds++;
+                    if (timerCurrentMode == 3) todayRec.WorkSeconds++;
+                    else todayRec.StudySeconds++;
                 }
                 pomoRemainingSeconds--;
 
@@ -13469,11 +13587,11 @@ namespace OpenWidget
 
             bool anyTimerRunning = (timerCurrentMode == 0 && defaultTimerIsRunning) ||
                 (timerCurrentMode == 1 && gameTimerIsRunning) ||
-                (timerCurrentMode == 2 && pomoIsRunning);
+                ((timerCurrentMode == 2 || timerCurrentMode == 3) && pomoIsRunning);
 
             if (anyTimerRunning)
             {
-                int totalActive = todayRec.StudySeconds + todayRec.GameSeconds;
+                int totalActive = todayRec.StudySeconds + todayRec.WorkSeconds + todayRec.GameSeconds;
                 if (todayHeatmapCell != null && (totalActive <= 2 || (totalActive % 30) == 0))
                 {
                     todayHeatmapCell.Background = GetHeatmapCellBrush(today);
@@ -13518,16 +13636,21 @@ namespace OpenWidget
             if (timerWindow == null) return;
             try
             {
-                string[] modeHighlightHex = { accentColorHex, timerGameColorHex, timerStudyColorHex };
+                string thirdHighlight = timerCurrentMode == 3 ? timerWorkColorHex : timerStudyColorHex;
+                string[] modeHighlightHex = { accentColorHex, timerGameColorHex, thirdHighlight };
                 for (int i = 0; i < 3; i++)
                 {
                     Button mb = btnTimerModes[i];
                     if (mb == null) continue;
-                    bool isActive = (timerCurrentMode == i);
+                    bool isActive = (i == 2) ? (timerCurrentMode == 2 || timerCurrentMode == 3) : (timerCurrentMode == i);
                     mb.Background = HexBrush(isActive ? "#38281E" : "#221C18");
                     mb.BorderBrush = HexBrush(isActive ? modeHighlightHex[i] : "#3A2F29");
                     TextBlock tb = mb.Content as TextBlock;
-                    if (tb != null) tb.Foreground = HexBrush(isActive ? "#FAF6F2" : "#9E8E82");
+                    if (tb != null)
+                    {
+                        if (i == 2) tb.Text = timerCurrentMode == 3 ? L("💼 İş Modu", "💼 Work") : L("📚 Ders Modu", "📚 Study");
+                        tb.Foreground = HexBrush(isActive ? "#FAF6F2" : "#9E8E82");
+                    }
                 }
 
                 string activeTickHex = timerStudyColorHex;
@@ -13576,23 +13699,26 @@ namespace OpenWidget
                 }
                 else
                 {
+                    bool isWork = (timerCurrentMode == 3);
                     activeRunning = pomoIsRunning;
-                    txtTimerDialPhase.Text = pomoIsBreakPhase ? L("Mola Oturumu", "Break Session") : L("Odaklanma oturumu", "Focus Session");
+                    txtTimerDialPhase.Text = pomoIsBreakPhase
+                        ? L("Mola Oturumu", "Break Session")
+                        : (isWork ? L("İş Oturumu", "Work Session") : L("Odaklanma oturumu", "Focus Session"));
                     int totalPhaseSec = Math.Max(1, (pomoIsBreakPhase ? pomoBreakMinutes : pomoFocusMinutes) * 60);
                     if (pomoRemainingSeconds == totalPhaseSec && !pomoIsRunning)
                     {
                         dialCenterStr = (pomoIsBreakPhase ? pomoBreakMinutes : pomoFocusMinutes) + L(" dk", " min");
-                        txtTimerDialSub.Text = pomoIsBreakPhase ? L("☕ Hazır", "☕ Ready") : L("📚 Hazır", "📚 Ready");
+                        txtTimerDialSub.Text = pomoIsBreakPhase ? L("☕ Hazır", "☕ Ready") : (isWork ? L("💼 Hazır", "💼 Ready") : L("📚 Hazır", "📚 Ready"));
                     }
                     else
                     {
                         dialCenterStr = FormatClockMMSS(pomoRemainingSeconds);
                         txtTimerDialSub.Text = pomoIsRunning
-                            ? (pomoIsBreakPhase ? L("☕ Dinlen", "☕ Break") : L("📚 Çalışılıyor", "📚 Focusing"))
+                            ? (pomoIsBreakPhase ? L("☕ Dinlen", "☕ Break") : (isWork ? L("💼 Çalışılıyor", "💼 Working") : L("📚 Çalışılıyor", "📚 Focusing")))
                             : L("⏸ Duraklatıldı", "⏸ Paused");
                     }
 
-                    activeTickHex = pomoIsBreakPhase ? accentColorHex : timerStudyColorHex;
+                    activeTickHex = pomoIsBreakPhase ? accentColorHex : (isWork ? timerWorkColorHex : timerStudyColorHex);
                     double frac = Math.Max(0.0, Math.Min(1.0, (double)pomoRemainingSeconds / totalPhaseSec));
                     litTicks = (int)Math.Ceiling(frac * 24.0);
                 }
@@ -13622,12 +13748,14 @@ namespace OpenWidget
                     txtPomoPlayPauseIcon.Text = activeRunning ? "⏸" : "▶";
                     txtPomoPlayPauseIcon.Margin = new Thickness(activeRunning ? 0 : 1.5, 0, 0, 0);
 
-                    string playBtnKey = timerCurrentMode + "|" + (activeRunning ? "1" : "0") + "|" + accentColorHex + "|" + timerStudyColorHex + "|" + timerGameColorHex + "|" + appLanguage;
+                    string playBtnKey = timerCurrentMode + "|" + (activeRunning ? "1" : "0") + "|" + accentColorHex + "|" + timerStudyColorHex + "|" + timerWorkColorHex + "|" + timerGameColorHex + "|" + appLanguage;
                     if (!string.Equals(playBtnKey, lastPlayBtnBrushKey, StringComparison.Ordinal))
                     {
                         Color modeBase = timerCurrentMode == 0
                             ? ParseColor(accentColorHex)
-                            : (timerCurrentMode == 1 ? ParseColor(timerGameColorHex) : ParseColor(timerStudyColorHex));
+                            : (timerCurrentMode == 1
+                                ? ParseColor(timerGameColorHex)
+                                : (timerCurrentMode == 3 ? ParseColor(timerWorkColorHex) : ParseColor(timerStudyColorHex)));
                         Color btnBgCol = activeRunning
                             ? modeBase
                             : BlendColors(Color.FromRgb(26, 22, 19), modeBase, 0.72, 255);
@@ -13650,9 +13778,15 @@ namespace OpenWidget
                 }
 
                 DailyActivityRecord rec = GetOrCreateActivityRecord(DateTime.Today);
-                if (txtTodayStudyVal != null) txtTodayStudyVal.Text = FormatDurationLocalized(rec.StudySeconds);
+                if (txtTodayStudyVal != null) txtTodayStudyVal.Text = FormatDurationLocalized(rec.StudySeconds + rec.WorkSeconds);
                 if (txtTodayGameVal != null) txtTodayGameVal.Text = FormatDurationLocalized(rec.GameSeconds);
                 if (txtTodayPcVal != null) txtTodayPcVal.Text = FormatDurationLocalized(rec.PcSeconds);
+                if (btnTimerJournalAdd != null)
+                {
+                    bool hasTodayNote = !string.IsNullOrWhiteSpace(rec.JournalNote);
+                    btnTimerJournalAdd.BorderBrush = HexBrush(hasTodayNote ? accentColorHex : "#4A3C34");
+                    btnTimerJournalAdd.Background = HexBrush(hasTodayNote ? "#38281E" : "#2E2520");
+                }
             }
             catch { }
         }
@@ -13678,7 +13812,7 @@ namespace OpenWidget
 
                 if (timerPomoSettingsPopup != null)
                     timerPomoSettingsPopup.BorderBrush = HexBrush(accentColorHex);
-                if (timerStudyStatBar != null) timerStudyStatBar.Background = HexBrush(timerStudyColorHex);
+                if (timerStudyStatBar != null) timerStudyStatBar.Background = BuildSplitBrush(timerStudyColorHex, timerWorkColorHex, true);
                 if (timerGameStatBar != null) timerGameStatBar.Background = HexBrush(timerGameColorHex);
                 if (timerPcStatBar != null) timerPcStatBar.Background = HexBrush(accentColorHex);
 
@@ -13694,6 +13828,196 @@ namespace OpenWidget
             catch { }
         }
 
+        private void OpenDailyJournalWindow(DateTime targetDate)
+        {
+            DateTime dateKey = targetDate.Date;
+            if (dateKey > DateTime.Today) dateKey = DateTime.Today;
+
+            if (dailyJournalWindow != null)
+            {
+                try { dailyJournalWindow.Close(); } catch { }
+                dailyJournalWindow = null;
+            }
+
+            dailyJournalWindow = new Window
+            {
+                Title = L("Günlük Kaydı", "Daily Journal"),
+                Width = 440,
+                Height = 320,
+                WindowStartupLocation = WindowStartupLocation.CenterScreen,
+                WindowStyle = WindowStyle.None,
+                AllowsTransparency = true,
+                Background = Brushes.Transparent,
+                ResizeMode = ResizeMode.NoResize,
+                Topmost = true,
+                UseLayoutRounding = true,
+                SnapsToDevicePixels = true,
+                FontFamily = new FontFamily("Segoe UI")
+            };
+            TextOptions.SetTextFormattingMode(dailyJournalWindow, TextFormattingMode.Display);
+            TextOptions.SetTextRenderingMode(dailyJournalWindow, TextRenderingMode.ClearType);
+            Program.TryApplyWindowIcon(dailyJournalWindow);
+
+            Border card = new Border
+            {
+                CornerRadius = new CornerRadius(15),
+                Background = HexBrush("#F71B1613"),
+                BorderBrush = HexBrush(accentColorHex),
+                BorderThickness = new Thickness(1.5),
+                Padding = new Thickness(16, 14, 16, 14),
+                Margin = new Thickness(8)
+            };
+            card.Effect = new DropShadowEffect { Color = Colors.Black, BlurRadius = 16, Opacity = 0.72 };
+
+            Grid root = new Grid();
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+            Grid hdr = new Grid { Margin = new Thickness(0, 0, 0, 10), Background = Brushes.Transparent, Cursor = Cursors.SizeAll };
+            hdr.MouseLeftButtonDown += (s, e) =>
+            {
+                if (e.ButtonState == MouseButtonState.Pressed)
+                {
+                    try { dailyJournalWindow.DragMove(); } catch { }
+                }
+            };
+            hdr.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            hdr.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            string[] monthsFull = IsEn
+                ? new string[] { "", "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December" }
+                : new string[] { "", "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık" };
+            string[] daysFull = IsEn
+                ? new string[] { "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday" }
+                : new string[] { "Pazar", "Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi" };
+            string formattedDate = IsEn
+                ? string.Format("{0}, {1} {2}, {3}", daysFull[(int)dateKey.DayOfWeek], monthsFull[dateKey.Month], dateKey.Day, dateKey.Year)
+                : string.Format("{0} {1} {2} {3}", dateKey.Day, monthsFull[dateKey.Month], dateKey.Year, daysFull[(int)dateKey.DayOfWeek]);
+
+            StackPanel hdrLeft = new StackPanel();
+            hdrLeft.Children.Add(new TextBlock { Text = L("📝 Günlük Kaydı", "📝 Daily Journal"), Foreground = HexBrush("#FAF6F2"), FontSize = 14.5, FontWeight = FontWeights.Bold });
+            hdrLeft.Children.Add(new TextBlock { Text = formattedDate, Foreground = HexBrush(accentColorHex), FontSize = 11, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 1, 0, 0) });
+            Grid.SetColumn(hdrLeft, 0);
+            hdr.Children.Add(hdrLeft);
+
+            Button btnClose = CreateStyledIconButton("#2E2520", "#4A3C34", L("Kapat", "Close"));
+            btnClose.Padding = new Thickness(9, 4, 9, 4);
+            btnClose.VerticalAlignment = VerticalAlignment.Top;
+            btnClose.Content = new TextBlock { Text = "✕", Foreground = HexBrush("#C7B9AE"), FontSize = 11.5 };
+            btnClose.Click += (s, e) => dailyJournalWindow.Close();
+            Grid.SetColumn(btnClose, 1);
+            hdr.Children.Add(btnClose);
+            Grid.SetRow(hdr, 0);
+            root.Children.Add(hdr);
+
+            DailyActivityRecord existingRec;
+            activityByDate.TryGetValue(dateKey, out existingRec);
+            string existingNote = existingRec != null && !string.IsNullOrWhiteSpace(existingRec.JournalNote) ? existingRec.JournalNote.Trim() : "";
+
+            Grid editorHost = new Grid { Margin = new Thickness(0, 0, 0, 10) };
+            TextBox txtNote = new TextBox
+            {
+                Text = existingNote,
+                AcceptsReturn = true,
+                TextWrapping = TextWrapping.Wrap,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                Background = HexBrush("#161210"),
+                Foreground = HexBrush("#FAF6F2"),
+                CaretBrush = HexBrush(accentColorHex),
+                BorderBrush = HexBrush("#463932"),
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(10, 8, 10, 8),
+                FontSize = 12,
+                VerticalContentAlignment = VerticalAlignment.Top
+            };
+            TextBlock txtPlaceholder = new TextBlock
+            {
+                Text = L("Bugün neler yaptın? Kısaca not alabilirsin... (Ctrl+Enter ile kaydet)", "What did you work on today? Write a short note... (Ctrl+Enter to save)"),
+                Foreground = HexBrush("#6E6057"),
+                FontSize = 11.5,
+                Margin = new Thickness(12, 9, 12, 9),
+                IsHitTestVisible = false,
+                TextWrapping = TextWrapping.Wrap,
+                Visibility = string.IsNullOrEmpty(existingNote) ? Visibility.Visible : Visibility.Collapsed
+            };
+            txtNote.TextChanged += (s, e) =>
+            {
+                txtPlaceholder.Visibility = string.IsNullOrEmpty(txtNote.Text) ? Visibility.Visible : Visibility.Collapsed;
+            };
+            editorHost.Children.Add(txtNote);
+            editorHost.Children.Add(txtPlaceholder);
+            Grid.SetRow(editorHost, 1);
+            root.Children.Add(editorHost);
+
+            Action<string> commitJournal = (newText) =>
+            {
+                string trimmed = string.IsNullOrWhiteSpace(newText) ? "" : newText.Trim();
+                DailyActivityRecord targetRec = GetOrCreateActivityRecord(dateKey);
+                targetRec.JournalNote = trimmed;
+                SaveTimerActivityData();
+                BuildTimerHeatmapGrid();
+                UpdateTimerWidgetUi();
+                if (refreshTimerDetailedViewAction != null) refreshTimerDetailedViewAction();
+                try { dailyJournalWindow.Close(); } catch { }
+                ShowToast(string.IsNullOrEmpty(trimmed) ? L("🗑 Günlük temizlendi", "🗑 Journal note cleared") : L("📝 Günlük kaydedildi", "📝 Journal note saved"));
+            };
+
+            Grid footer = new Grid();
+            footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            footer.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            Button btnDelete = CreateStyledIconButton("#2A181B", "#7F1D1D", L("Bu günün notunu sil", "Delete this day's note"));
+            btnDelete.Padding = new Thickness(10, 6, 10, 6);
+            btnDelete.Visibility = string.IsNullOrEmpty(existingNote) ? Visibility.Collapsed : Visibility.Visible;
+            btnDelete.Content = new TextBlock { Text = L("🗑 Sil", "🗑 Delete"), Foreground = HexBrush("#FCA5A5"), FontSize = 11, FontWeight = FontWeights.SemiBold };
+            btnDelete.Click += (s, e) => commitJournal("");
+            Grid.SetColumn(btnDelete, 0);
+            footer.Children.Add(btnDelete);
+
+            Button btnCancel = CreateStyledIconButton("#26201D", "#463932", L("İptal", "Cancel"));
+            btnCancel.Padding = new Thickness(12, 6, 12, 6);
+            btnCancel.Margin = new Thickness(0, 0, 8, 0);
+            btnCancel.Content = new TextBlock { Text = L("İptal", "Cancel"), Foreground = HexBrush("#C7B9AE"), FontSize = 11.5, FontWeight = FontWeights.SemiBold };
+            btnCancel.Click += (s, e) => dailyJournalWindow.Close();
+            Grid.SetColumn(btnCancel, 2);
+            footer.Children.Add(btnCancel);
+
+            Button btnSave = CreateStyledIconButton("#38281E", accentColorHex, L("Günlüğü kaydet (Ctrl+Enter)", "Save journal (Ctrl+Enter)"));
+            btnSave.Padding = new Thickness(14, 6, 14, 6);
+            btnSave.Content = new TextBlock { Text = L("✓ Kaydet", "✓ Save"), Foreground = HexBrush("#FAF6F2"), FontSize = 11.5, FontWeight = FontWeights.Bold };
+            btnSave.Click += (s, e) => commitJournal(txtNote.Text);
+            Grid.SetColumn(btnSave, 3);
+            footer.Children.Add(btnSave);
+
+            Grid.SetRow(footer, 2);
+            root.Children.Add(footer);
+
+            dailyJournalWindow.PreviewKeyDown += (s, e) =>
+            {
+                if (e.Key == Key.Escape)
+                {
+                    dailyJournalWindow.Close();
+                    e.Handled = true;
+                }
+                else if (e.Key == Key.Enter && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
+                {
+                    commitJournal(txtNote.Text);
+                    e.Handled = true;
+                }
+            };
+
+            card.Child = root;
+            dailyJournalWindow.Content = card;
+            dailyJournalWindow.Closed += (s, e) => { dailyJournalWindow = null; };
+            dailyJournalWindow.Show();
+            dailyJournalWindow.Activate();
+            txtNote.Focus();
+            txtNote.CaretIndex = txtNote.Text.Length;
+        }
+
         private void OpenTimerSettingsWindow()
         {
             if (timerSettingsWindow != null && timerSettingsWindow.IsVisible)
@@ -13704,7 +14028,7 @@ namespace OpenWidget
 
             timerSettingsWindow = new Window
             {
-                Title = L("Timer Widgeti Ayarları", "Timer Widget Settings"),
+                Title = L("Aktivite Widgeti Ayarları", "Activity Widget Settings"),
                 Width = 425,
                 Height = Math.Max(420, Math.Min(600, SystemParameters.WorkArea.Height - 60)),
                 WindowStartupLocation = WindowStartupLocation.CenterScreen,
@@ -13748,8 +14072,8 @@ namespace OpenWidget
             hdr.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
             StackPanel hdrTitles = new StackPanel { Margin = new Thickness(0, 0, 10, 0) };
-            hdrTitles.Children.Add(new TextBlock { Text = L("⏱ Timer Widgeti Ayarları", "⏱ Timer Widget Settings"), Foreground = HexBrush("#FAF6F2"), FontSize = 14.5, FontWeight = FontWeights.Bold });
-            hdrTitles.Children.Add(new TextBlock { Text = L("Günlere detaylı bakış, Pomodoro süreleri ve ders/oyun renkleri", "Detailed day view, Pomodoro durations & mode colors"), Foreground = HexBrush("#9E8E82"), FontSize = 10.5, Margin = new Thickness(0, 1, 0, 0) });
+            hdrTitles.Children.Add(new TextBlock { Text = L("⏱ Aktivite Widgeti Ayarları", "⏱ Activity Widget Settings"), Foreground = HexBrush("#FAF6F2"), FontSize = 14.5, FontWeight = FontWeights.Bold });
+            hdrTitles.Children.Add(new TextBlock { Text = L("Günlere detaylı bakış, Pomodoro süreleri ve ders/iş/oyun renkleri", "Detailed day view, Pomodoro durations & mode colors"), Foreground = HexBrush("#9E8E82"), FontSize = 10.5, Margin = new Thickness(0, 1, 0, 0) });
             Grid.SetColumn(hdrTitles, 0);
             hdr.Children.Add(hdrTitles);
 
@@ -13860,7 +14184,7 @@ namespace OpenWidget
             body.Children.Add(pomoCard);
 
             Border colorCard = CreateSettingsSectionCard(
-                L("🎨 Ders & Oyun Modu Renkleri", "🎨 Study & Gaming Colors"),
+                L("🎨 Ders, İş & Oyun Modu Renkleri", "🎨 Study, Work & Gaming Colors"),
                 L("Her saat karenin 1/10'unu doldurur (10 saati aşarsa oranlanır)", "Each hour fills 1/10 of a square (proportional above 10h)"));
             StackPanel colorStack = (StackPanel)colorCard.Child;
 
@@ -13875,16 +14199,16 @@ namespace OpenWidget
                 CornerRadius = new CornerRadius(6),
                 BorderBrush = HexBrush("#5E5047"),
                 BorderThickness = new Thickness(1),
-                Background = BuildStackedHourBrush(10800, 7200, 28800),
+                Background = BuildStackedHourBrush(7200, 7200, 7200, 28800),
                 Margin = new Thickness(0, 0, 10, 0),
-                ToolTip = L("Örnek: 3s Ders (%30) + 2s Oyun (%20) + %50 Default (8s PC %100 doygunluk)", "Example: 3h Study (30%) + 2h Gaming (20%) + 50% Default (8h PC 100% saturation)")
+                ToolTip = L("Örnek: 2s Ders (%20) + 2s İş (%20) + 2s Oyun (%20) + %40 Default (8s PC %100 doygunluk)", "Example: 2h Study (20%) + 2h Work (20%) + 2h Gaming (20%) + 40% Default (8h PC 100% saturation)")
             };
             Grid.SetColumn(stackedPreviewBox, 0);
             previewRow.Children.Add(stackedPreviewBox);
 
             TextBlock txtPreviewHint = new TextBlock
             {
-                Text = L("Önizleme (3s Ders + 2s Oyun = %30 / %20 + %50 Default; 8s PC = %100 doygunluk)", "Preview (3h Study + 2h Gaming = 30% / 20% + 50% Default; 8h PC = 100% saturation)"),
+                Text = L("Önizleme (2s Ders + 2s İş + 2s Oyun + %40 Default; 8s PC = %100 doygunluk)", "Preview (2h Study + 2h Work + 2h Gaming + 40% Default; 8h PC = 100% saturation)"),
                 Foreground = HexBrush("#B8A99E"),
                 FontSize = 10.5,
                 VerticalAlignment = VerticalAlignment.Center,
@@ -13897,8 +14221,8 @@ namespace OpenWidget
             Action applyTimerCustomColors = () =>
             {
                 SaveSettings();
-                stackedPreviewBox.Background = BuildStackedHourBrush(10800, 7200, 28800);
-                if (timerStudyStatBar != null) timerStudyStatBar.Background = HexBrush(timerStudyColorHex);
+                stackedPreviewBox.Background = BuildStackedHourBrush(7200, 7200, 7200, 28800);
+                if (timerStudyStatBar != null) timerStudyStatBar.Background = BuildSplitBrush(timerStudyColorHex, timerWorkColorHex, true);
                 if (timerGameStatBar != null) timerGameStatBar.Background = HexBrush(timerGameColorHex);
                 lastPlayBtnBrushKey = "";
                 BuildTimerHeatmapGrid();
@@ -13907,8 +14231,10 @@ namespace OpenWidget
             };
 
             string[] studyPresets = { "#2EA043", "#10B981", "#38BDF8", "#3B82F6", "#E2925C", "#F59E0B", "#EC4899" };
+            string[] workPresets = { "#1D4ED8", "#2563EB", "#1E40AF", "#0EA5E9", "#6366F1", "#0D9488", "#D97706" };
             string[] gamePresets = { "#A78BFA", "#8B5CF6", "#F43F5E", "#FB7185", "#F97316", "#14B8A6", "#38BDF8" };
             List<Border> studySwatches = new List<Border>();
+            List<Border> workSwatches = new List<Border>();
             List<Border> gameSwatches = new List<Border>();
 
             Action<string, string[], List<Border>, Func<string>, Action<string>> buildColorPickerGroup = (label, presets, list, getHex, setHex) =>
@@ -13973,12 +14299,13 @@ namespace OpenWidget
             };
 
             buildColorPickerGroup(L("📚 Ders Modu Rengi", "📚 Study Mode Color"), studyPresets, studySwatches, () => timerStudyColorHex, (h) => timerStudyColorHex = h);
+            buildColorPickerGroup(L("💼 İş Modu Rengi", "💼 Work Mode Color"), workPresets, workSwatches, () => timerWorkColorHex, (h) => timerWorkColorHex = h);
             buildColorPickerGroup(L("🎮 Oyun / Eğlence Modu Rengi", "🎮 Gaming Mode Color"), gamePresets, gameSwatches, () => timerGameColorHex, (h) => timerGameColorHex = h);
             body.Children.Add(colorCard);
 
             refreshTimerSettingsPreviewAction = () =>
             {
-                stackedPreviewBox.Background = BuildStackedHourBrush(10800, 7200, 28800);
+                stackedPreviewBox.Background = BuildStackedHourBrush(7200, 7200, 7200, 28800);
                 card.BorderBrush = HexBrush(accentColorHex);
             };
 
@@ -14158,10 +14485,17 @@ namespace OpenWidget
             Grid gamesHdr = new Grid { Margin = new Thickness(0, 0, 0, 8) };
             gamesHdr.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             gamesHdr.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            gamesHdr.Children.Add(new TextBlock { Text = L("🎮 Oynanan Oyunlar", "🎮 Games Played"), Foreground = HexBrush("#FAF6F2"), FontSize = 12, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center });
-            TextBlock txtGamesBadge = new TextBlock { Foreground = HexBrush("#9E8E82"), FontSize = 10.5, VerticalAlignment = VerticalAlignment.Center };
+            gamesHdr.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            gamesHdr.Children.Add(new TextBlock { Text = L("🎮 Oyunlar & Günlük", "🎮 Games & Journal"), Foreground = HexBrush("#FAF6F2"), FontSize = 12, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center });
+            TextBlock txtGamesBadge = new TextBlock { Foreground = HexBrush("#9E8E82"), FontSize = 10.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) };
             Grid.SetColumn(txtGamesBadge, 1);
             gamesHdr.Children.Add(txtGamesBadge);
+            Button btnDayNoteEdit = CreateStyledIconButton("#2E2520", "#4A3C34", L("Seçili gün için günlük notu ekle / düzenle", "Add / edit journal note for selected day"));
+            btnDayNoteEdit.Padding = new Thickness(6, 2, 6, 2);
+            btnDayNoteEdit.Content = new TextBlock { Text = "📝+", Foreground = HexBrush("#FAF6F2"), FontSize = 10, FontWeight = FontWeights.Bold };
+            btnDayNoteEdit.Click += (s, e) => OpenDailyJournalWindow(selectedDate);
+            Grid.SetColumn(btnDayNoteEdit, 2);
+            gamesHdr.Children.Add(btnDayNoteEdit);
             Grid.SetRow(gamesHdr, 0);
             rightGamesLayout.Children.Add(gamesHdr);
 
@@ -14202,23 +14536,30 @@ namespace OpenWidget
                 txtSelDayNum.Text = selectedDate.Day.ToString();
                 txtSelMonthYear.Text = months[selectedDate.Month] + " " + selectedDate.Year;
 
-                detStudyBar.Background = HexBrush(timerStudyColorHex);
+                detStudyBar.Background = BuildSplitBrush(timerStudyColorHex, timerWorkColorHex, true);
                 detGameBar.Background = HexBrush(timerGameColorHex);
                 detPcBar.Background = HexBrush(accentColorHex);
 
                 DailyActivityRecord rec;
                 activityByDate.TryGetValue(selectedDate, out rec);
                 int st = rec != null ? rec.StudySeconds : 0;
+                int wk = rec != null ? rec.WorkSeconds : 0;
                 int gm = rec != null ? rec.GameSeconds : 0;
                 int pc = rec != null ? rec.PcSeconds : 0;
+                string dayNote = rec != null && !string.IsNullOrWhiteSpace(rec.JournalNote) ? rec.JournalNote.Trim() : "";
 
-                txtDetStudyVal.Text = FormatDurationLocalized(st);
+                txtDetStudyVal.Text = FormatDurationLocalized(st + wk);
                 txtDetGameVal.Text = FormatDurationLocalized(gm);
                 txtDetPcVal.Text = FormatDurationLocalized(pc);
                 detailPreviewSwatch.Background = GetHeatmapCellBrush(selectedDate);
-                detailPreviewSwatch.ToolTip = string.Format("{0}: {1} • {2}: {3}",
+                detailPreviewSwatch.ToolTip = string.Format("{0}: {1} • {2}: {3} • {4}: {5}",
                     L("Ders", "Study"), FormatDurationLocalized(st),
+                    L("İş", "Work"), FormatDurationLocalized(wk),
                     L("Oyun", "Gaming"), FormatDurationLocalized(gm));
+
+                btnDayNoteEdit.BorderBrush = HexBrush(string.IsNullOrEmpty(dayNote) ? "#4A3C34" : accentColorHex);
+                TextBlock noteBtnTb = btnDayNoteEdit.Content as TextBlock;
+                if (noteBtnTb != null) noteBtnTb.Text = string.IsNullOrEmpty(dayNote) ? "📝+" : "📝";
 
                 for (int ci = 0; ci < detailCells.Count; ci++)
                 {
@@ -14246,6 +14587,48 @@ namespace OpenWidget
                 }
 
                 gamesListPanel.Children.Clear();
+                if (!string.IsNullOrEmpty(dayNote))
+                {
+                    Border noteCard = new Border
+                    {
+                        CornerRadius = new CornerRadius(8),
+                        Background = HexBrush("#2A211C"),
+                        BorderBrush = HexBrush(accentColorHex),
+                        BorderThickness = new Thickness(1),
+                        Padding = new Thickness(10, 7, 10, 8),
+                        Margin = new Thickness(0, 0, 0, 7)
+                    };
+                    StackPanel ns = new StackPanel();
+                    Grid nh = new Grid { Margin = new Thickness(0, 0, 0, 4) };
+                    nh.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                    nh.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                    nh.Children.Add(new TextBlock
+                    {
+                        Text = L("📝 Günlük", "📝 Journal"),
+                        Foreground = HexBrush(accentColorHex),
+                        FontSize = 11,
+                        FontWeight = FontWeights.Bold,
+                        VerticalAlignment = VerticalAlignment.Center
+                    });
+                    Button btnEditInline = CreateStyledIconButton("#38281E", "#4A3C34", L("Günlüğü düzenle", "Edit journal note"));
+                    btnEditInline.Padding = new Thickness(6, 1, 6, 1);
+                    btnEditInline.Content = new TextBlock { Text = L("Düzenle", "Edit"), Foreground = HexBrush("#D7CBC2"), FontSize = 9.5 };
+                    btnEditInline.Click += (s, e) => OpenDailyJournalWindow(selectedDate);
+                    Grid.SetColumn(btnEditInline, 1);
+                    nh.Children.Add(btnEditInline);
+                    ns.Children.Add(nh);
+                    ns.Children.Add(new TextBlock
+                    {
+                        Text = dayNote,
+                        Foreground = HexBrush("#FAF6F2"),
+                        FontSize = 11,
+                        TextWrapping = TextWrapping.Wrap,
+                        LineHeight = 16
+                    });
+                    noteCard.Child = ns;
+                    gamesListPanel.Children.Add(noteCard);
+                }
+
                 List<KeyValuePair<string, int>> entries = new List<KeyValuePair<string, int>>();
                 int trackedSum = 0;
                 if (rec != null && rec.GameBreakdown != null)
@@ -14272,25 +14655,38 @@ namespace OpenWidget
 
                 if (entries.Count == 0)
                 {
-                    txtGamesBadge.Text = L("Kayıt yok", "No records");
-                    Border emptyBox = new Border
+                    txtGamesBadge.Text = string.IsNullOrEmpty(dayNote) ? L("Kayıt yok", "No records") : L("Günlük var", "Has note");
+                    if (string.IsNullOrEmpty(dayNote))
                     {
-                        CornerRadius = new CornerRadius(9),
-                        Background = HexBrush("#161210"),
-                        BorderBrush = HexBrush("#2C2420"),
-                        BorderThickness = new Thickness(1),
-                        Padding = new Thickness(12, 18, 12, 18),
-                        Margin = new Thickness(0, 6, 0, 0)
-                    };
-                    emptyBox.Child = new TextBlock
+                        Border emptyBox = new Border
+                        {
+                            CornerRadius = new CornerRadius(9),
+                            Background = HexBrush("#161210"),
+                            BorderBrush = HexBrush("#2C2420"),
+                            BorderThickness = new Thickness(1),
+                            Padding = new Thickness(12, 18, 12, 18),
+                            Margin = new Thickness(0, 6, 0, 0)
+                        };
+                        emptyBox.Child = new TextBlock
+                        {
+                            Text = L("Bu tarihte kaydedilmiş oyun veya günlük notu bulunmuyor.", "No games or journal note recorded on this date."),
+                            Foreground = HexBrush("#8E7F74"),
+                            FontSize = 11.5,
+                            HorizontalAlignment = HorizontalAlignment.Center,
+                            TextWrapping = TextWrapping.Wrap
+                        };
+                        gamesListPanel.Children.Add(emptyBox);
+                    }
+                    else
                     {
-                        Text = L("Bu tarihte kaydedilmiş bir oyun bulunmuyor.", "No games recorded on this date."),
-                        Foreground = HexBrush("#8E7F74"),
-                        FontSize = 11.5,
-                        HorizontalAlignment = HorizontalAlignment.Center,
-                        TextWrapping = TextWrapping.Wrap
-                    };
-                    gamesListPanel.Children.Add(emptyBox);
+                        gamesListPanel.Children.Add(new TextBlock
+                        {
+                            Text = L("Bu tarihte kaydedilmiş bir oyun bulunmuyor.", "No games recorded on this date."),
+                            Foreground = HexBrush("#8E7F74"),
+                            FontSize = 10.5,
+                            Margin = new Thickness(2, 2, 2, 0)
+                        });
+                    }
                 }
                 else
                 {
@@ -14430,7 +14826,7 @@ namespace OpenWidget
             renderSelectedDay();
 
             // Manual Time Entry Modal Overlay
-            int manualAddCategory = 0; // 0 = Study, 1 = Gaming, 2 = PC Uptime (Default)
+            int manualAddCategory = 0; // 0 = Study, 1 = Work, 2 = Gaming, 3 = PC Uptime (Default)
             Border manualAddOverlay = new Border
             {
                 Visibility = Visibility.Collapsed,
@@ -14441,7 +14837,7 @@ namespace OpenWidget
 
             Border manualModalCard = new Border
             {
-                Width = 370,
+                Width = 415,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
                 CornerRadius = new CornerRadius(13),
@@ -14473,26 +14869,33 @@ namespace OpenWidget
             mHdr.Children.Add(btnCloseManual);
             mStack.Children.Add(mHdr);
 
-            UniformGrid catSwitch = new UniformGrid { Columns = 3, Margin = new Thickness(0, 0, 0, 10) };
+            UniformGrid catSwitch = new UniformGrid { Columns = 4, Margin = new Thickness(0, 0, 0, 10) };
             Button btnCatStudy = CreateStretchSettingsButton("#2A221E", timerStudyColorHex, L("Ders kategorisine ekle", "Add to Study"));
-            btnCatStudy.Margin = new Thickness(0, 0, 3, 0);
-            btnCatStudy.Padding = new Thickness(6, 6, 6, 6);
-            TextBlock lblCatStudy = new TextBlock { Text = L("📚 Ders", "📚 Study"), Foreground = HexBrush("#FAF6F2"), FontSize = 11, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center };
+            btnCatStudy.Margin = new Thickness(0, 0, 2, 0);
+            btnCatStudy.Padding = new Thickness(4, 6, 4, 6);
+            TextBlock lblCatStudy = new TextBlock { Text = L("📚 Ders", "📚 Study"), Foreground = HexBrush("#FAF6F2"), FontSize = 10.5, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center };
             btnCatStudy.Content = lblCatStudy;
 
+            Button btnCatWork = CreateStretchSettingsButton("#1D1815", "#3A2F29", L("İş kategorisine ekle", "Add to Work"));
+            btnCatWork.Margin = new Thickness(2, 0, 2, 0);
+            btnCatWork.Padding = new Thickness(4, 6, 4, 6);
+            TextBlock lblCatWork = new TextBlock { Text = L("💼 İş", "💼 Work"), Foreground = HexBrush("#9E8E82"), FontSize = 10.5, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center };
+            btnCatWork.Content = lblCatWork;
+
             Button btnCatGame = CreateStretchSettingsButton("#1D1815", "#3A2F29", L("Oyun kategorisine ekle", "Add to Gaming"));
-            btnCatGame.Margin = new Thickness(3, 0, 3, 0);
-            btnCatGame.Padding = new Thickness(6, 6, 6, 6);
-            TextBlock lblCatGame = new TextBlock { Text = L("🎮 Oyun", "🎮 Gaming"), Foreground = HexBrush("#9E8E82"), FontSize = 11, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center };
+            btnCatGame.Margin = new Thickness(2, 0, 2, 0);
+            btnCatGame.Padding = new Thickness(4, 6, 4, 6);
+            TextBlock lblCatGame = new TextBlock { Text = L("🎮 Oyun", "🎮 Gaming"), Foreground = HexBrush("#9E8E82"), FontSize = 10.5, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center };
             btnCatGame.Content = lblCatGame;
 
             Button btnCatPc = CreateStretchSettingsButton("#1D1815", "#3A2F29", L("Default PC açık kalma süresine ekle", "Add to PC Uptime (Default)"));
-            btnCatPc.Margin = new Thickness(3, 0, 0, 0);
-            btnCatPc.Padding = new Thickness(6, 6, 6, 6);
-            TextBlock lblCatPc = new TextBlock { Text = L("🖥 PC Açık", "🖥 PC Uptime"), Foreground = HexBrush("#9E8E82"), FontSize = 11, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center };
+            btnCatPc.Margin = new Thickness(2, 0, 0, 0);
+            btnCatPc.Padding = new Thickness(4, 6, 4, 6);
+            TextBlock lblCatPc = new TextBlock { Text = L("🖥 PC Açık", "🖥 PC Uptime"), Foreground = HexBrush("#9E8E82"), FontSize = 10.5, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center };
             btnCatPc.Content = lblCatPc;
 
             catSwitch.Children.Add(btnCatStudy);
+            catSwitch.Children.Add(btnCatWork);
             catSwitch.Children.Add(btnCatGame);
             catSwitch.Children.Add(btnCatPc);
             mStack.Children.Add(catSwitch);
@@ -14519,19 +14922,24 @@ namespace OpenWidget
                 btnCatStudy.BorderBrush = HexBrush(manualAddCategory == 0 ? timerStudyColorHex : "#3A2F29");
                 lblCatStudy.Foreground = HexBrush(manualAddCategory == 0 ? "#FAF6F2" : "#9E8E82");
 
-                btnCatGame.Background = HexBrush(manualAddCategory == 1 ? "#2A221E" : "#1D1815");
-                btnCatGame.BorderBrush = HexBrush(manualAddCategory == 1 ? timerGameColorHex : "#3A2F29");
-                lblCatGame.Foreground = HexBrush(manualAddCategory == 1 ? "#FAF6F2" : "#9E8E82");
+                btnCatWork.Background = HexBrush(manualAddCategory == 1 ? "#2A221E" : "#1D1815");
+                btnCatWork.BorderBrush = HexBrush(manualAddCategory == 1 ? timerWorkColorHex : "#3A2F29");
+                lblCatWork.Foreground = HexBrush(manualAddCategory == 1 ? "#FAF6F2" : "#9E8E82");
 
-                btnCatPc.Background = HexBrush(manualAddCategory == 2 ? "#2A221E" : "#1D1815");
-                btnCatPc.BorderBrush = HexBrush(manualAddCategory == 2 ? accentColorHex : "#3A2F29");
-                lblCatPc.Foreground = HexBrush(manualAddCategory == 2 ? "#FAF6F2" : "#9E8E82");
+                btnCatGame.Background = HexBrush(manualAddCategory == 2 ? "#2A221E" : "#1D1815");
+                btnCatGame.BorderBrush = HexBrush(manualAddCategory == 2 ? timerGameColorHex : "#3A2F29");
+                lblCatGame.Foreground = HexBrush(manualAddCategory == 2 ? "#FAF6F2" : "#9E8E82");
 
-                gameNamePanel.Visibility = manualAddCategory == 1 ? Visibility.Visible : Visibility.Collapsed;
+                btnCatPc.Background = HexBrush(manualAddCategory == 3 ? "#2A221E" : "#1D1815");
+                btnCatPc.BorderBrush = HexBrush(manualAddCategory == 3 ? accentColorHex : "#3A2F29");
+                lblCatPc.Foreground = HexBrush(manualAddCategory == 3 ? "#FAF6F2" : "#9E8E82");
+
+                gameNamePanel.Visibility = manualAddCategory == 2 ? Visibility.Visible : Visibility.Collapsed;
             };
             btnCatStudy.Click += (s, e) => { manualAddCategory = 0; syncCatUi(); };
-            btnCatGame.Click += (s, e) => { manualAddCategory = 1; syncCatUi(); };
-            btnCatPc.Click += (s, e) => { manualAddCategory = 2; syncCatUi(); };
+            btnCatWork.Click += (s, e) => { manualAddCategory = 1; syncCatUi(); };
+            btnCatGame.Click += (s, e) => { manualAddCategory = 2; syncCatUi(); };
+            btnCatPc.Click += (s, e) => { manualAddCategory = 3; syncCatUi(); };
 
             Grid hmInputs = new Grid { Margin = new Thickness(0, 0, 0, 8) };
             hmInputs.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -14627,6 +15035,10 @@ namespace OpenWidget
                 DailyActivityRecord rec = GetOrCreateActivityRecord(selectedDate);
                 if (manualAddCategory == 1)
                 {
+                    rec.WorkSeconds += addSec;
+                }
+                else if (manualAddCategory == 2)
+                {
                     rec.GameSeconds += addSec;
                     string rawName = txtManualGameName.Text.Trim();
                     string gKey = SanitizeGameKey(string.IsNullOrEmpty(rawName) ? L("Manuel Oyun", "Manual Gaming") : rawName);
@@ -14634,7 +15046,7 @@ namespace OpenWidget
                     rec.GameBreakdown.TryGetValue(gKey, out prevSec);
                     rec.GameBreakdown[gKey] = prevSec + addSec;
                 }
-                else if (manualAddCategory == 2)
+                else if (manualAddCategory == 3)
                 {
                     rec.PcSeconds = Math.Min(86400, rec.PcSeconds + addSec);
                 }
@@ -14647,7 +15059,7 @@ namespace OpenWidget
                 BuildTimerHeatmapGrid();
                 UpdateTimerWidgetUi();
                 manualAddOverlay.Visibility = Visibility.Collapsed;
-                string catLabel = manualAddCategory == 1 ? L("Oyun", "Gaming") : (manualAddCategory == 2 ? L("PC Açık", "PC Uptime") : L("Ders", "Study"));
+                string catLabel = manualAddCategory == 1 ? L("İş", "Work") : (manualAddCategory == 2 ? L("Oyun", "Gaming") : (manualAddCategory == 3 ? L("PC Açık", "PC Uptime") : L("Ders", "Study")));
                 ShowToast(string.Format("✓ {0} ({1})", FormatDurationLocalized(addSec), catLabel));
             };
             Grid.SetColumn(btnConfirmManual, 2);
