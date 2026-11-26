@@ -75,7 +75,7 @@ See real-time battery percentages for your **wireless mouse, headset, keyboard, 
 **OpenWidget**, Windows 10/11 için tek bir **~448 KB `.exe`** dosyasından oluşan, sıfır kurulumlu ve **`%0.0` boşta CPU** tüketen yerel masaüstü widget'ıdır.
 
 - **Görev Çubuğunda Kablosuz Pil Göstergesi:** Kablosuz fare, kulaklık, klavye ve kumanda şarj yüzdelerini ekstra sürücü yazılımı olmadan doğrudan Windows taskbar'ında gösterir (**şarjda yeşil**, **`≤ %10` kırmızı + isteğe bağlı düşük pil bildirimi**; tam ekranda otomatik gizlenir). **Ayarlar → Ek Widget'lar** kısmından tek tıkla açabilirsiniz.
-- **Ana Widget:** Canlı **Hava Durumu** (`°C/°F`), **Monitör Parlaklığı** (HDR SDR + DDC/CI, `Birlikte/Ayrı` kontrol), **Kablosuz Cihazlar**, **Donanım Telemetrisi** (CPU/RAM/GPU/VRAM/Ağ & Ping/Diskler), **Pano Geçmişi** ve **Sistem Tepsisi / `Ctrl + Shift + M`** tek tık mikrofon susturma; tüm modüller **sürükle-bırak** ile sıralanabilir.
+- **Ana Widget:** Canlı **Hava Durumu**, **Monitör Parlaklığı**, **Kablosuz Cihazlar**, **Donanım Telemetrisi** (CPU/RAM/GPU/VRAM/Ağ & Ping/Diskler), **Pano Geçmişi** ve **Sistem Tepsisi / `Ctrl + Shift + M`** tek tık mikrofon susturma; tüm modüller **sürükle-bırak** ile sıralanabilir.
 - **Aktivite & Takvim Widget'ları** *(Ek Widget'lardan isteğe bağlı açılır)*:
   - **Aktivite Widgeti:** `Default`, otomatik oyun algılayan **Eğlence**, **Ders** (Pomodoro) ve **İş Modu** (Ders butonuna 2. tıkta açılır), başlıkta **`[+]` Günlük notu ekleme**, günlere detaylı oyun/not bakışı, manuel süre ekleme ve yıllık ısı haritası.
   - **Takvim Widget'ı:** Mini aylık takvim, günlük ajanda ve Google Takvim (`.ics`) senkronizasyonu.
