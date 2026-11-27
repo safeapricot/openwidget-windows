@@ -110,6 +110,87 @@ namespace OpenWidget
         }
 
         [StructLayout(LayoutKind.Sequential)]
+        public struct SP_DEVINFO_DATA
+        {
+            public uint cbSize;
+            public Guid ClassGuid;
+            public uint DevInst;
+            public IntPtr Reserved;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct DEVPROPKEY
+        {
+            public Guid fmtid;
+            public uint pid;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct HIDD_ATTRIBUTES
+        {
+            public int Size;
+            public ushort VendorID;
+            public ushort ProductID;
+            public ushort VersionNumber;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct HIDP_CAPS
+        {
+            public ushort Usage;
+            public ushort UsagePage;
+            public ushort InputReportByteLength;
+            public ushort OutputReportByteLength;
+            public ushort FeatureReportByteLength;
+            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 17)]
+            public ushort[] Reserved;
+            public ushort NumberLinkCollectionNodes;
+            public ushort NumberInputButtonCaps;
+            public ushort NumberInputValueCaps;
+            public ushort NumberInputDataIndices;
+            public ushort NumberOutputButtonCaps;
+            public ushort NumberOutputValueCaps;
+            public ushort NumberOutputDataIndices;
+            public ushort NumberFeatureButtonCaps;
+            public ushort NumberFeatureValueCaps;
+            public ushort NumberFeatureDataIndices;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct BLUETOOTH_DEVICE_SEARCH_PARAMS
+        {
+            public uint dwSize;
+            public int fReturnAuthenticated;
+            public int fReturnRemembered;
+            public int fReturnUnknown;
+            public int fReturnConnected;
+            public int fIssueInquiry;
+            public byte cTimeoutMultiplier;
+            public IntPtr hRadio;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct BLUETOOTH_SYSTEMTIME
+        {
+            public ushort wYear, wMonth, wDayOfWeek, wDay, wHour, wMinute, wSecond, wMilliseconds;
+        }
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        public struct BLUETOOTH_DEVICE_INFO
+        {
+            public uint dwSize;
+            public ulong Address;
+            public uint ulClassofDevice;
+            [MarshalAs(UnmanagedType.Bool)] public bool fConnected;
+            [MarshalAs(UnmanagedType.Bool)] public bool fRemembered;
+            [MarshalAs(UnmanagedType.Bool)] public bool fAuthenticated;
+            public BLUETOOTH_SYSTEMTIME stLastSeen;
+            public BLUETOOTH_SYSTEMTIME stLastUsed;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 248)]
+            public string szName;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
         public struct NativeOverlapped
         {
             public IntPtr InternalLow;
@@ -167,8 +248,29 @@ namespace OpenWidget
         [DllImport("hid.dll")]
         public static extern void HidD_GetHidGuid(out Guid hidGuid);
 
+        [DllImport("hid.dll", CharSet = CharSet.Unicode)]
+        public static extern bool HidD_GetProductString(IntPtr HidDeviceObject, StringBuilder Buffer, int BufferLength);
+
+        [DllImport("hid.dll", CharSet = CharSet.Unicode)]
+        public static extern bool HidD_GetManufacturerString(IntPtr HidDeviceObject, StringBuilder Buffer, int BufferLength);
+
+        [DllImport("hid.dll")]
+        public static extern bool HidD_GetAttributes(IntPtr HidDeviceObject, ref HIDD_ATTRIBUTES Attributes);
+
+        [DllImport("hid.dll")]
+        public static extern bool HidD_GetPreparsedData(IntPtr HidDeviceObject, out IntPtr PreparsedData);
+
+        [DllImport("hid.dll")]
+        public static extern bool HidD_FreePreparsedData(IntPtr PreparsedData);
+
+        [DllImport("hid.dll")]
+        public static extern int HidP_GetCaps(IntPtr PreparsedData, out HIDP_CAPS Capabilities);
+
         [DllImport("setupapi.dll", SetLastError = true)]
         public static extern IntPtr SetupDiGetClassDevs(ref Guid ClassGuid, IntPtr Enumerator, IntPtr hwndParent, int Flags);
+
+        [DllImport("setupapi.dll", EntryPoint = "SetupDiGetClassDevs", SetLastError = true)]
+        public static extern IntPtr SetupDiGetClassDevsAll(IntPtr ClassGuid, IntPtr Enumerator, IntPtr hwndParent, uint Flags);
 
         [DllImport("setupapi.dll", SetLastError = true)]
         public static extern bool SetupDiEnumDeviceInterfaces(IntPtr DeviceInfoSet, IntPtr DeviceInfoData, ref Guid InterfaceClassGuid, int MemberIndex, ref SP_DEVICE_INTERFACE_DATA DeviceInterfaceData);
@@ -176,8 +278,47 @@ namespace OpenWidget
         [DllImport("setupapi.dll", CharSet = CharSet.Auto, SetLastError = true)]
         public static extern bool SetupDiGetDeviceInterfaceDetail(IntPtr DeviceInfoSet, ref SP_DEVICE_INTERFACE_DATA DeviceInterfaceData, IntPtr DeviceInterfaceDetailData, int DeviceInterfaceDetailDataSize, out int RequiredSize, IntPtr DeviceInfoData);
 
+        [DllImport("setupapi.dll", SetLastError = true)]
+        public static extern bool SetupDiEnumDeviceInfo(IntPtr DeviceInfoSet, uint MemberIndex, ref SP_DEVINFO_DATA DeviceInfoData);
+
+        [DllImport("setupapi.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern bool SetupDiGetDevicePropertyW(IntPtr DeviceInfoSet, ref SP_DEVINFO_DATA DeviceInfoData, ref DEVPROPKEY PropertyKey, out uint PropertyType, byte[] PropertyBuffer, uint PropertyBufferSize, out uint RequiredSize, uint Flags);
+
+        [DllImport("setupapi.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        public static extern bool SetupDiGetDeviceRegistryProperty(IntPtr DeviceInfoSet, ref SP_DEVINFO_DATA DeviceInfoData, uint Property, out uint PropertyRegDataType, StringBuilder PropertyBuffer, uint PropertyBufferSize, out uint RequiredSize);
+
+        [DllImport("setupapi.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern bool SetupDiGetDeviceInstanceIdW(IntPtr DeviceInfoSet, ref SP_DEVINFO_DATA DeviceInfoData, StringBuilder DeviceInstanceId, int DeviceInstanceIdSize, out int RequiredSize);
+
         [DllImport("setupapi.dll")]
         public static extern bool SetupDiDestroyDeviceInfoList(IntPtr DeviceInfoSet);
+
+        [DllImport("cfgmgr32.dll")]
+        public static extern uint CM_Get_DevNode_Status(out uint pulStatus, out uint pulProblemNumber, uint dnDevInst, uint ulFlags);
+
+        [DllImport("bthprops.cpl", SetLastError = true)]
+        public static extern IntPtr BluetoothFindFirstDevice(ref BLUETOOTH_DEVICE_SEARCH_PARAMS pbtsp, ref BLUETOOTH_DEVICE_INFO pbtdi);
+
+        [DllImport("bthprops.cpl", SetLastError = true)]
+        public static extern bool BluetoothFindNextDevice(IntPtr hFind, ref BLUETOOTH_DEVICE_INFO pbtdi);
+
+        [DllImport("bthprops.cpl", SetLastError = true)]
+        public static extern bool BluetoothFindDeviceClose(IntPtr hFind);
+
+        [DllImport("combase.dll")]
+        private static extern int RoInitialize(int initType);
+
+        [DllImport("combase.dll")]
+        private static extern void RoUninitialize();
+
+        [DllImport("combase.dll")]
+        private static extern int RoGetActivationFactory(IntPtr activatableClassId, ref Guid iid, out IntPtr factory);
+
+        [DllImport("combase.dll", CharSet = CharSet.Unicode)]
+        private static extern int WindowsCreateString(string sourceString, int length, out IntPtr hstring);
+
+        [DllImport("combase.dll")]
+        private static extern int WindowsDeleteString(IntPtr hstring);
 
         [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
         public static extern IntPtr CreateFile(string lpFileName, uint dwDesiredAccess, uint dwShareMode, IntPtr lpSecurityAttributes, int dwCreationDisposition, uint dwFlagsAndAttributes, IntPtr hTemplateFile);
@@ -329,6 +470,693 @@ namespace OpenWidget
                 if (evW != IntPtr.Zero) CloseHandle(evW);
                 if (evR != IntPtr.Zero) CloseHandle(evR);
             }
+        }
+
+        private static bool OverlappedHidReadSingle(IntPtr hFile, int rxLen, out byte[] rx, uint timeoutMs)
+        {
+            rx = null;
+            if (hFile == IntPtr.Zero || hFile == new IntPtr(-1) || rxLen <= 0) return false;
+            IntPtr evR = CreateEvent(IntPtr.Zero, true, false, null);
+            int ovSize = Marshal.SizeOf(typeof(NativeOverlapped));
+            IntPtr pOvR = Marshal.AllocHGlobal(ovSize);
+            IntPtr pRx = Marshal.AllocHGlobal(rxLen);
+            try
+            {
+                for (int i = 0; i < rxLen; i++) Marshal.WriteByte(pRx, i, 0);
+                NativeOverlapped ovR = new NativeOverlapped { EventHandle = evR };
+                Marshal.StructureToPtr(ovR, pOvR, false);
+                uint rBytes = 0;
+                bool got = false;
+                if (ReadFile(hFile, pRx, (uint)rxLen, out rBytes, pOvR))
+                {
+                    got = rBytes > 0;
+                }
+                else
+                {
+                    if (WaitForSingleObject(evR, timeoutMs) == 0)
+                    {
+                        if (GetOverlappedResult(hFile, pOvR, out rBytes, false)) got = rBytes > 0;
+                    }
+                    else
+                    {
+                        CancelIo(hFile);
+                        uint dummyR;
+                        GetOverlappedResult(hFile, pOvR, out dummyR, true);
+                        return false;
+                    }
+                }
+                if (got && rBytes > 0)
+                {
+                    int copyLen = (int)Math.Min(rBytes, (uint)rxLen);
+                    rx = new byte[copyLen];
+                    Marshal.Copy(pRx, rx, 0, copyLen);
+                    return true;
+                }
+                return false;
+            }
+            catch { return false; }
+            finally
+            {
+                Marshal.FreeHGlobal(pRx);
+                Marshal.FreeHGlobal(pOvR);
+                if (evR != IntPtr.Zero) CloseHandle(evR);
+            }
+        }
+
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        private delegate int WgiGetPtrDel(IntPtr self, out IntPtr value);
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        private delegate int WgiGetAtDel(IntPtr self, uint index, out IntPtr value);
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        private delegate int WgiGetUIntDel(IntPtr self, out uint value);
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        private delegate int WgiGetUShortDel(IntPtr self, out ushort value);
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        private delegate int WgiGetIntDel(IntPtr self, out int value);
+
+        private static Delegate WgiSlot(IntPtr obj, int index, Type delType)
+        {
+            IntPtr vtbl = Marshal.ReadIntPtr(obj);
+            IntPtr fnPtr = Marshal.ReadIntPtr(vtbl, index * IntPtr.Size);
+            return Marshal.GetDelegateForFunctionPointer(fnPtr, delType);
+        }
+
+        private static int? WgiReadBoxedInt(IntPtr report, int slot)
+        {
+            IntPtr box;
+            int hr = ((WgiGetPtrDel)WgiSlot(report, slot, typeof(WgiGetPtrDel)))(report, out box);
+            if (hr < 0 || box == IntPtr.Zero) return null;
+            try
+            {
+                int val;
+                if (((WgiGetIntDel)WgiSlot(box, 6, typeof(WgiGetIntDel)))(box, out val) >= 0) return val;
+                return null;
+            }
+            finally { Marshal.Release(box); }
+        }
+
+        public static bool TryReadWgiGamepadBattery(bool xinputIsWiredType1, out int pct, out bool isCharging)
+        {
+            pct = 0;
+            isCharging = false;
+            int ro = -1;
+            try
+            {
+                ro = RoInitialize(1);
+                IntPtr clsStr = IntPtr.Zero;
+                IntPtr statics = IntPtr.Zero;
+                try
+                {
+                    if (WindowsCreateString("Windows.Gaming.Input.RawGameController", 38, out clsStr) < 0 || clsStr == IntPtr.Zero)
+                        return false;
+                    Guid rawStaticsIid = new Guid("EB8D0792-E95A-4B19-AFC7-0A59F8BF759E");
+                    if (RoGetActivationFactory(clsStr, ref rawStaticsIid, out statics) < 0 || statics == IntPtr.Zero)
+                        return false;
+                }
+                finally
+                {
+                    if (clsStr != IntPtr.Zero) WindowsDeleteString(clsStr);
+                }
+
+                try
+                {
+                    IntPtr view;
+                    if (((WgiGetPtrDel)WgiSlot(statics, 10, typeof(WgiGetPtrDel)))(statics, out view) < 0 || view == IntPtr.Zero)
+                        return false;
+                    try
+                    {
+                        uint count = 0;
+                        if (((WgiGetUIntDel)WgiSlot(view, 7, typeof(WgiGetUIntDel)))(view, out count) < 0 || count == 0)
+                            return false;
+
+                        Guid rawCtrlIid = new Guid("7CAD6D91-A7E1-4F71-9A78-33E9C5DFEA62");
+                        Guid batInfoIid = new Guid("DCECC681-3963-4DA6-955D-553F3B6F6161");
+
+                        for (uint idx = 0; idx < count; idx++)
+                        {
+                            IntPtr item;
+                            if (((WgiGetAtDel)WgiSlot(view, 6, typeof(WgiGetAtDel)))(view, idx, out item) < 0 || item == IntPtr.Zero)
+                                continue;
+                            try
+                            {
+                                ushort vid = 0, pid = 0;
+                                IntPtr pRaw;
+                                if (Marshal.QueryInterface(item, ref rawCtrlIid, out pRaw) >= 0 && pRaw != IntPtr.Zero)
+                                {
+                                    try
+                                    {
+                                        ((WgiGetUShortDel)WgiSlot(pRaw, 9, typeof(WgiGetUShortDel)))(pRaw, out pid);
+                                        ((WgiGetUShortDel)WgiSlot(pRaw, 10, typeof(WgiGetUShortDel)))(pRaw, out vid);
+                                    }
+                                    finally { Marshal.Release(pRaw); }
+                                }
+
+                                if (vid == 0x413D && pid == 0x2131) continue;
+
+                                IntPtr pBatInfo;
+                                if (Marshal.QueryInterface(item, ref batInfoIid, out pBatInfo) < 0 || pBatInfo == IntPtr.Zero)
+                                    continue;
+                                try
+                                {
+                                    IntPtr report;
+                                    if (((WgiGetPtrDel)WgiSlot(pBatInfo, 6, typeof(WgiGetPtrDel)))(pBatInfo, out report) < 0 || report == IntPtr.Zero)
+                                        continue;
+                                    try
+                                    {
+                                        int status = 0;
+                                        if (((WgiGetIntDel)WgiSlot(report, 10, typeof(WgiGetIntDel)))(report, out status) < 0)
+                                            continue;
+                                        if (status == 0) continue;
+
+                                        int? full = WgiReadBoxedInt(report, 8);
+                                        int? rem = WgiReadBoxedInt(report, 9);
+                                        if (!full.HasValue || full.Value <= 0 || !rem.HasValue || rem.Value < 0) continue;
+
+                                        // Reject xusb22.sys dummy 1000/1000 Discharging placeholder on USB/2.4GHz receivers
+                                        if (status == 1 && full.Value == 1000 && rem.Value == 1000) continue;
+                                        if (xinputIsWiredType1 && status != 3) continue;
+
+                                        if (status == 3 || (!xinputIsWiredType1 && (status == 1 || status == 2)))
+                                        {
+                                            pct = Math.Max(1, Math.Min(100, (int)Math.Round(100.0 * rem.Value / full.Value)));
+                                            isCharging = (status == 3);
+                                            return true;
+                                        }
+                                    }
+                                    finally { Marshal.Release(report); }
+                                }
+                                finally { Marshal.Release(pBatInfo); }
+                            }
+                            finally { Marshal.Release(item); }
+                        }
+                    }
+                    finally { Marshal.Release(view); }
+                }
+                finally { Marshal.Release(statics); }
+            }
+            catch { }
+            finally
+            {
+                if (ro >= 0) { try { RoUninitialize(); } catch { } }
+            }
+            return false;
+        }
+
+        private static bool TryReadSonyGamepadHid(out int pct, out bool isCharging, out bool isBt)
+        {
+            pct = 0;
+            isCharging = false;
+            isBt = false;
+            try
+            {
+                Guid hidGuid;
+                HidD_GetHidGuid(out hidGuid);
+                IntPtr hDevInfo = SetupDiGetClassDevs(ref hidGuid, IntPtr.Zero, IntPtr.Zero, 0x12);
+                if (hDevInfo == IntPtr.Zero || hDevInfo == new IntPtr(-1)) return false;
+                try
+                {
+                    int index = 0;
+                    SP_DEVICE_INTERFACE_DATA devData = new SP_DEVICE_INTERFACE_DATA();
+                    devData.cbSize = Marshal.SizeOf(devData);
+                    while (SetupDiEnumDeviceInterfaces(hDevInfo, IntPtr.Zero, ref hidGuid, index++, ref devData))
+                    {
+                        int reqSize;
+                        SetupDiGetDeviceInterfaceDetail(hDevInfo, ref devData, IntPtr.Zero, 0, out reqSize, IntPtr.Zero);
+                        if (reqSize <= 0) continue;
+                        IntPtr detailBuf = Marshal.AllocHGlobal(reqSize);
+                        try
+                        {
+                            Marshal.WriteInt32(detailBuf, IntPtr.Size == 8 ? 8 : 6);
+                            if (!SetupDiGetDeviceInterfaceDetail(hDevInfo, ref devData, detailBuf, reqSize, out reqSize, IntPtr.Zero)) continue;
+                            string p = Marshal.PtrToStringAuto(new IntPtr(detailBuf.ToInt64() + 4));
+                            if (string.IsNullOrEmpty(p) || p.IndexOf("vid_054c", StringComparison.OrdinalIgnoreCase) < 0) continue;
+
+                            IntPtr hInfo = CreateFile(p, 0, 3, IntPtr.Zero, 3, 0, IntPtr.Zero);
+                            if (hInfo == IntPtr.Zero || hInfo == new IntPtr(-1)) continue;
+                            HIDD_ATTRIBUTES attr = new HIDD_ATTRIBUTES { Size = Marshal.SizeOf(typeof(HIDD_ATTRIBUTES)) };
+                            HIDP_CAPS caps = new HIDP_CAPS();
+                            bool capsOk = false;
+                            try
+                            {
+                                if (HidD_GetAttributes(hInfo, ref attr))
+                                {
+                                    IntPtr pp;
+                                    if (HidD_GetPreparsedData(hInfo, out pp) && pp != IntPtr.Zero)
+                                    {
+                                        try { capsOk = (HidP_GetCaps(pp, out caps) == 0x00110000); }
+                                        finally { HidD_FreePreparsedData(pp); }
+                                    }
+                                }
+                            }
+                            finally { CloseHandle(hInfo); }
+
+                            if (!capsOk || attr.VendorID != 0x054C || caps.UsagePage != 0x0001 || caps.Usage != 0x0005 || caps.InputReportByteLength < 64)
+                                continue;
+
+                            bool isDualSense = (attr.ProductID == 0x0CE6 || attr.ProductID == 0x0DF2);
+                            bool isDs4 = (attr.ProductID == 0x05C4 || attr.ProductID == 0x09CC || attr.ProductID == 0x0BA0);
+                            if (!isDualSense && !isDs4) continue;
+
+                            IntPtr hRead = CreateFile(p, 0x80000000U, 3, IntPtr.Zero, 3, 0x40000000U, IntPtr.Zero);
+                            if (hRead == IntPtr.Zero || hRead == new IntPtr(-1)) continue;
+                            try
+                            {
+                                byte[] rx;
+                                if (!OverlappedHidReadSingle(hRead, caps.InputReportByteLength, out rx, 70) || rx == null) continue;
+                                if (isDualSense)
+                                {
+                                    int bi = -1;
+                                    if (rx[0] == 0x01 && rx.Length >= 55) { bi = 53; isBt = false; }
+                                    else if (rx[0] == 0x31 && rx.Length >= 56) { bi = 54; isBt = true; }
+                                    if (bi >= 0)
+                                    {
+                                        byte b = rx[bi];
+                                        int st = (b >> 4) & 0x0F;
+                                        int raw = b & 0x0F;
+                                        if (st == 0x00) { pct = Math.Min(100, raw * 10 + 5); isCharging = false; }
+                                        else if (st == 0x01) { pct = Math.Min(100, raw * 10 + 5); isCharging = true; }
+                                        else if (st == 0x02) { pct = 100; isCharging = true; }
+                                    }
+                                }
+                                else
+                                {
+                                    int bi = -1;
+                                    if (rx[0] == 0x01 && rx.Length >= 32)
+                                    {
+                                        if (attr.ProductID == 0x0BA0 && (rx[31] & 0x04) != 0) continue;
+                                        bi = 30; isBt = false;
+                                    }
+                                    else if (rx[0] == 0x11 && rx.Length >= 33)
+                                    {
+                                        bi = 32; isBt = true;
+                                    }
+                                    if (bi >= 0)
+                                    {
+                                        byte b = rx[bi];
+                                        bool cable = (b & 0x10) != 0;
+                                        int raw = b & 0x0F;
+                                        if (cable)
+                                        {
+                                            pct = raw >= 10 ? 100 : Math.Min(100, raw * 10);
+                                            isCharging = (raw <= 10);
+                                        }
+                                        else
+                                        {
+                                            pct = Math.Min(100, raw * 10 + 5);
+                                            isCharging = false;
+                                        }
+                                    }
+                                }
+                                if (pct > 0 && pct <= 100) return true;
+                            }
+                            finally { CloseHandle(hRead); }
+                        }
+                        finally { Marshal.FreeHGlobal(detailBuf); }
+                    }
+                }
+                finally { SetupDiDestroyDeviceInfoList(hDevInfo); }
+            }
+            catch { }
+            return false;
+        }
+
+        private static bool TryReadBluetoothGamepadPnpBattery(out int pct)
+        {
+            pct = 0;
+            try
+            {
+                Dictionary<string, bool> btConnByMac = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+                try
+                {
+                    BLUETOOTH_DEVICE_SEARCH_PARAMS sp = new BLUETOOTH_DEVICE_SEARCH_PARAMS
+                    {
+                        dwSize = (uint)Marshal.SizeOf(typeof(BLUETOOTH_DEVICE_SEARCH_PARAMS)),
+                        fReturnAuthenticated = 1,
+                        fReturnRemembered = 1,
+                        fReturnUnknown = 0,
+                        fReturnConnected = 1,
+                        fIssueInquiry = 0,
+                        cTimeoutMultiplier = 0,
+                        hRadio = IntPtr.Zero
+                    };
+                    BLUETOOTH_DEVICE_INFO info = new BLUETOOTH_DEVICE_INFO { dwSize = (uint)Marshal.SizeOf(typeof(BLUETOOTH_DEVICE_INFO)) };
+                    IntPtr hFind = BluetoothFindFirstDevice(ref sp, ref info);
+                    if (hFind != IntPtr.Zero)
+                    {
+                        try
+                        {
+                            do
+                            {
+                                string mac = info.Address.ToString("X12");
+                                bool prev;
+                                if (!btConnByMac.TryGetValue(mac, out prev) || info.fConnected)
+                                    btConnByMac[mac] = info.fConnected;
+                            }
+                            while (BluetoothFindNextDevice(hFind, ref info));
+                        }
+                        finally { BluetoothFindDeviceClose(hFind); }
+                    }
+                }
+                catch { }
+
+                IntPtr hPnp = SetupDiGetClassDevsAll(IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, 0x02 | 0x04);
+                if (hPnp == IntPtr.Zero || hPnp == new IntPtr(-1)) return false;
+                try
+                {
+                    SP_DEVINFO_DATA devInfo = new SP_DEVINFO_DATA();
+                    devInfo.cbSize = (uint)Marshal.SizeOf(typeof(SP_DEVINFO_DATA));
+                    DEVPROPKEY batKey = new DEVPROPKEY { fmtid = new Guid("104EA319-6EE2-4701-BD47-8DDBF425BBE5"), pid = 2 };
+                    DEVPROPKEY isConnKey = new DEVPROPKEY { fmtid = new Guid("83DA6326-97A6-4088-9453-A1923F573B29"), pid = 15 };
+                    DEVPROPKEY containerKey = new DEVPROPKEY { fmtid = new Guid("8C7ED206-3F8A-4827-B3AB-AE9E1FAEFC6C"), pid = 2 };
+                    DEVPROPKEY hwIdsKey = new DEVPROPKEY { fmtid = new Guid("A45C254E-DF1C-4EFD-8020-67D146A850E0"), pid = 3 };
+                    DEVPROPKEY codKey = new DEVPROPKEY { fmtid = new Guid("2BD67D8B-8BEB-48D5-87E0-6CDA3428040A"), pid = 10 };
+
+                    Dictionary<Guid, bool> containerConn = new Dictionary<Guid, bool>();
+                    Dictionary<Guid, bool> containerIsGamepad = new Dictionary<Guid, bool>();
+                    List<KeyValuePair<Guid, KeyValuePair<string, int>>> batCandidates = new List<KeyValuePair<Guid, KeyValuePair<string, int>>>();
+
+                    byte[] propBuf = new byte[1024];
+                    StringBuilder sbInst = new StringBuilder(512);
+                    StringBuilder sbName = new StringBuilder(256);
+
+                    uint idx = 0;
+                    while (SetupDiEnumDeviceInfo(hPnp, idx, ref devInfo))
+                    {
+                        idx++;
+                        uint propType, reqSize;
+                        sbInst.Clear();
+                        int instReq;
+                        SetupDiGetDeviceInstanceIdW(hPnp, ref devInfo, sbInst, sbInst.Capacity, out instReq);
+                        string instId = sbInst.ToString().Trim();
+                        bool isBt = instId.StartsWith("BTH", StringComparison.OrdinalIgnoreCase) ||
+                                    instId.IndexOf("BTHENUM", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                    instId.IndexOf("BTHLE", StringComparison.OrdinalIgnoreCase) >= 0;
+                        if (!isBt) continue;
+
+                        Guid containerId = Guid.Empty;
+                        if (SetupDiGetDevicePropertyW(hPnp, ref devInfo, ref containerKey, out propType, propBuf, 16, out reqSize, 0) && reqSize >= 16)
+                        {
+                            byte[] gBytes = new byte[16];
+                            Array.Copy(propBuf, 0, gBytes, 0, 16);
+                            containerId = new Guid(gBytes);
+                        }
+
+                        bool hasConnProp = false;
+                        bool connVal = true;
+                        if (SetupDiGetDevicePropertyW(hPnp, ref devInfo, ref isConnKey, out propType, propBuf, 16, out reqSize, 0) && reqSize >= 1)
+                        {
+                            hasConnProp = true;
+                            connVal = (propBuf[0] != 0);
+                        }
+                        if (hasConnProp && containerId != Guid.Empty)
+                        {
+                            bool prevC = false;
+                            containerConn.TryGetValue(containerId, out prevC);
+                            containerConn[containerId] = prevC || connVal;
+                        }
+
+                        sbName.Clear();
+                        uint regType, regReq;
+                        if (!SetupDiGetDeviceRegistryProperty(hPnp, ref devInfo, 0x0C, out regType, sbName, (uint)sbName.Capacity, out regReq) || sbName.Length == 0)
+                        {
+                            sbName.Clear();
+                            SetupDiGetDeviceRegistryProperty(hPnp, ref devInfo, 0x00, out regType, sbName, (uint)sbName.Capacity, out regReq);
+                        }
+                        string devLower = sbName.ToString().ToLowerInvariant();
+
+                        string hwLower = "";
+                        if (SetupDiGetDevicePropertyW(hPnp, ref devInfo, ref hwIdsKey, out propType, propBuf, (uint)propBuf.Length, out reqSize, 0) && reqSize > 0)
+                        {
+                            int byteLen = (int)Math.Min(reqSize, (uint)propBuf.Length);
+                            hwLower = Encoding.Unicode.GetString(propBuf, 0, byteLen).Replace('\0', ' ').ToLowerInvariant();
+                        }
+
+                        bool isGamepadNode = false;
+                        if (SetupDiGetDevicePropertyW(hPnp, ref devInfo, ref codKey, out propType, propBuf, 16, out reqSize, 0) && reqSize >= 4)
+                        {
+                            uint cod = BitConverter.ToUInt32(propBuf, 0);
+                            uint major = (cod >> 8) & 0x1Fu;
+                            uint minor = (cod >> 2) & 0x3Fu;
+                            if (major == 0x05u && ((minor & 0x0Fu) == 0x01u || (minor & 0x0Fu) == 0x02u))
+                                isGamepadNode = true;
+                        }
+                        if (!isGamepadNode)
+                        {
+                            if (hwLower.Contains("hid_device_system_game") || hwLower.Contains("up:0001_u:0005") || hwLower.Contains("up:0001_u:0004") ||
+                                devLower.Contains("controller") || devLower.Contains("gamepad") || devLower.Contains("xbox") ||
+                                devLower.Contains("dualsense") || devLower.Contains("dualshock") || devLower.Contains("8bitdo") ||
+                                devLower.Contains("gamesir") || devLower.Contains("flydigi") || devLower.Contains("easysmx") ||
+                                devLower.Contains("machenike") || devLower.Contains("gulikit") || devLower.Contains("thunderobot") ||
+                                devLower.Contains("fantech") || devLower.Contains("secuzi"))
+                            {
+                                isGamepadNode = true;
+                            }
+                        }
+                        if (isGamepadNode && containerId != Guid.Empty)
+                        {
+                            containerIsGamepad[containerId] = true;
+                        }
+
+                        if (SetupDiGetDevicePropertyW(hPnp, ref devInfo, ref batKey, out propType, propBuf, 16, out reqSize, 0) && reqSize >= 1)
+                        {
+                            int candidatePct = propBuf[0];
+                            if (candidatePct > 0 && candidatePct <= 100)
+                            {
+                                uint cmStatus = 0, cmProblem = 0;
+                                bool cmOk = false;
+                                try { cmOk = (CM_Get_DevNode_Status(out cmStatus, out cmProblem, devInfo.DevInst, 0) == 0); } catch { }
+                                if (cmOk && (cmStatus & 0x00000400u) != 0) continue;
+                                if (!connVal) continue;
+                                if (isGamepadNode || containerId != Guid.Empty)
+                                {
+                                    batCandidates.Add(new KeyValuePair<Guid, KeyValuePair<string, int>>(
+                                        containerId,
+                                        new KeyValuePair<string, int>(isGamepadNode ? ("GP|" + instId) : instId, candidatePct)));
+                                }
+                            }
+                        }
+                    }
+
+                    foreach (var cand in batCandidates)
+                    {
+                        Guid cid = cand.Key;
+                        string tagInst = cand.Value.Key;
+                        bool markedGp = tagInst.StartsWith("GP|", StringComparison.Ordinal);
+                        if (!markedGp && (cid == Guid.Empty || !containerIsGamepad.ContainsKey(cid))) continue;
+
+                        if (cid != Guid.Empty)
+                        {
+                            bool cConn;
+                            if (containerConn.TryGetValue(cid, out cConn) && !cConn) continue;
+                        }
+
+                        Match macM = Regex.Match(tagInst, @"(?i)(?:DEV_|&|_)([0-9A-F]{12})(?:_|&|\\|$)");
+                        if (macM.Success)
+                        {
+                            bool macConn;
+                            if (btConnByMac.TryGetValue(macM.Groups[1].Value.ToUpperInvariant(), out macConn) && !macConn)
+                                continue;
+                        }
+
+                        pct = cand.Value.Value;
+                        return true;
+                    }
+                }
+                finally { SetupDiDestroyDeviceInfoList(hPnp); }
+            }
+            catch { }
+            return false;
+        }
+
+        private static bool IsKnownWirelessGamepadReceiver()
+        {
+            try
+            {
+                Guid hidGuid;
+                HidD_GetHidGuid(out hidGuid);
+                IntPtr hDevInfo = SetupDiGetClassDevs(ref hidGuid, IntPtr.Zero, IntPtr.Zero, 0x12);
+                if (hDevInfo == IntPtr.Zero || hDevInfo == new IntPtr(-1)) return false;
+                try
+                {
+                    int index = 0;
+                    SP_DEVICE_INTERFACE_DATA devData = new SP_DEVICE_INTERFACE_DATA();
+                    devData.cbSize = Marshal.SizeOf(devData);
+                    while (SetupDiEnumDeviceInterfaces(hDevInfo, IntPtr.Zero, ref hidGuid, index++, ref devData))
+                    {
+                        int reqSize;
+                        SetupDiGetDeviceInterfaceDetail(hDevInfo, ref devData, IntPtr.Zero, 0, out reqSize, IntPtr.Zero);
+                        if (reqSize <= 0) continue;
+                        IntPtr detailBuf = Marshal.AllocHGlobal(reqSize);
+                        try
+                        {
+                            Marshal.WriteInt32(detailBuf, IntPtr.Size == 8 ? 8 : 6);
+                            if (!SetupDiGetDeviceInterfaceDetail(hDevInfo, ref devData, detailBuf, reqSize, out reqSize, IntPtr.Zero)) continue;
+                            string p = Marshal.PtrToStringAuto(new IntPtr(detailBuf.ToInt64() + 4));
+                            if (string.IsNullOrEmpty(p)) continue;
+
+                            IntPtr h = CreateFile(p, 0, 3, IntPtr.Zero, 3, 0, IntPtr.Zero);
+                            if (h == IntPtr.Zero || h == new IntPtr(-1)) continue;
+                            try
+                            {
+                                HIDD_ATTRIBUTES attr = new HIDD_ATTRIBUTES { Size = Marshal.SizeOf(typeof(HIDD_ATTRIBUTES)) };
+                                if (!HidD_GetAttributes(h, ref attr)) continue;
+                                if ((attr.VendorID == 0x413D && attr.ProductID == 0x2131) ||
+                                    (attr.VendorID == 0x1A34 && attr.ProductID == 0xF517) ||
+                                    attr.VendorID == 0x2345 || attr.VendorID == 0x2DC8 ||
+                                    attr.VendorID == 0x3537 || attr.VendorID == 0x2F24 ||
+                                    (attr.VendorID == 0x045E && (attr.ProductID == 0x0719 || attr.ProductID == 0x0291 || attr.ProductID == 0x02FE || attr.ProductID == 0x02E6 || attr.ProductID == 0x0B12)))
+                                {
+                                    return true;
+                                }
+
+                                if (attr.VendorID == 0x3554 || attr.VendorID == 0x373B || attr.VendorID == 0x03F0 || attr.VendorID == 0x0951 ||
+                                    attr.VendorID == 0x046D || attr.VendorID == 0x1532 || attr.VendorID == 0x1B1C || attr.VendorID == 0x1038)
+                                    continue;
+
+                                IntPtr pp;
+                                HIDP_CAPS caps = new HIDP_CAPS();
+                                if (HidD_GetPreparsedData(h, out pp) && pp != IntPtr.Zero)
+                                {
+                                    bool okCaps = false;
+                                    try { okCaps = (HidP_GetCaps(pp, out caps) == 0x00110000); }
+                                    finally { HidD_FreePreparsedData(pp); }
+                                    if (okCaps && ((caps.UsagePage == 0x0001 && (caps.Usage == 0x0005 || caps.Usage == 0x0004)) || caps.UsagePage >= 0xFF00))
+                                    {
+                                        StringBuilder sbM = new StringBuilder(128);
+                                        StringBuilder sbP = new StringBuilder(128);
+                                        HidD_GetManufacturerString(h, sbM, 256);
+                                        HidD_GetProductString(h, sbP, 256);
+                                        string combined = (sbM.ToString() + " " + sbP.ToString()).ToLowerInvariant();
+                                        if (combined.Contains("zhixu") || combined.Contains("2.4g") || combined.Contains("receiver") ||
+                                            combined.Contains("dongle") || combined.Contains("easysmx") || combined.Contains("8bitdo") ||
+                                            combined.Contains("gamesir") || combined.Contains("flydigi") || combined.Contains("machenike") ||
+                                            combined.Contains("fantech") || combined.Contains("gulikit") || combined.Contains("thunderobot") ||
+                                            combined.Contains("secuzi"))
+                                        {
+                                            return true;
+                                        }
+                                    }
+                                }
+                            }
+                            finally { CloseHandle(h); }
+                        }
+                        finally { Marshal.FreeHGlobal(detailBuf); }
+                    }
+                }
+                finally { SetupDiDestroyDeviceInfoList(hDevInfo); }
+            }
+            catch { }
+            return false;
+        }
+
+        public static void QueryGamepadBattery(out bool padConnected, out bool hasBatteryPct, out int barPct, out bool isCharging, out string pctText, out string detail)
+        {
+            padConnected = false;
+            hasBatteryPct = false;
+            barPct = 0;
+            isCharging = false;
+            pctText = "Kapalı";
+            detail = "Bağlı Değil";
+
+            // 1. Sony DualSense / DualShock 4 Direct HID Battery
+            int sonyPct;
+            bool sonyChg, sonyBt;
+            if (TryReadSonyGamepadHid(out sonyPct, out sonyChg, out sonyBt))
+            {
+                padConnected = true;
+                hasBatteryPct = true;
+                barPct = sonyPct;
+                isCharging = sonyChg;
+                pctText = "%" + sonyPct;
+                detail = sonyChg ? ((sonyBt ? "Bluetooth" : "USB") + " • ⚡ Şarjda") : ((sonyBt ? "Bluetooth" : "USB") + " • Açık");
+                return;
+            }
+
+            // 2. Bluetooth PnP Battery (DEVPKEY_Bluetooth_Battery)
+            int btPct;
+            if (TryReadBluetoothGamepadPnpBattery(out btPct))
+            {
+                int wgiBtPct;
+                bool wgiBtChg = false;
+                TryReadWgiGamepadBattery(false, out wgiBtPct, out wgiBtChg);
+                padConnected = true;
+                hasBatteryPct = true;
+                barPct = btPct;
+                isCharging = wgiBtChg;
+                pctText = "%" + btPct;
+                detail = wgiBtChg ? "Bluetooth • ⚡ Şarjda" : "Bluetooth • Açık";
+                return;
+            }
+
+            // 3. XInput (0..3) + Windows.Gaming.Input (non-xusb22)
+            try
+            {
+                for (uint i = 0; i < 4; i++)
+                {
+                    XINPUT_STATE st;
+                    if (XInputGetState(i, out st) == 0)
+                    {
+                        padConnected = true;
+                        XINPUT_BATTERY_INFORMATION bat;
+                        bool gotBat = (XInputGetBatteryInformation(i, 0, out bat) == 0);
+                        bool isType1 = (!gotBat || bat.BatteryType == 1);
+
+                        int wgiPct;
+                        bool wgiChg;
+                        if (TryReadWgiGamepadBattery(isType1, out wgiPct, out wgiChg))
+                        {
+                            hasBatteryPct = true;
+                            barPct = wgiPct;
+                            isCharging = wgiChg;
+                            pctText = "%" + wgiPct;
+                            detail = wgiChg ? "Kablosuz • ⚡ Şarjda" : "Kablosuz • Açık";
+                        }
+                        else if (gotBat && (bat.BatteryType == 2 || bat.BatteryType == 3))
+                        {
+                            hasBatteryPct = true;
+                            isCharging = false;
+                            if (bat.BatteryLevel == 3) { barPct = 100; pctText = "%100"; detail = "Kablosuz • Tam Dolu"; }
+                            else if (bat.BatteryLevel == 2) { barPct = 65; pctText = "%65"; detail = "Kablosuz • İyi Seviye"; }
+                            else if (bat.BatteryLevel == 1) { barPct = 30; pctText = "%30"; detail = "Kablosuz • Düşük Pil"; }
+                            else { barPct = 10; pctText = "%10"; detail = "Kablosuz • Çok Düşük!"; }
+                        }
+                        else
+                        {
+                            hasBatteryPct = false;
+                            barPct = 0;
+                            isCharging = false;
+                            pctText = "Açık";
+                            bool is24g = IsKnownWirelessGamepadReceiver();
+                            detail = is24g ? "2.4GHz • Bağlı" : (isType1 ? "USB • Bağlı" : "Bağlı • Aktif");
+                        }
+                        return;
+                    }
+                }
+            }
+            catch { }
+
+            // 4. WinMM DirectInput Fallback
+            try
+            {
+                int numDevs = Math.Min(16, joyGetNumDevs());
+                for (int i = 0; i < numDevs; i++)
+                {
+                    JOYINFOEX ji = new JOYINFOEX();
+                    ji.dwSize = Marshal.SizeOf(typeof(JOYINFOEX));
+                    ji.dwFlags = 0xFF;
+                    if (joyGetPosEx(i, ref ji) == 0)
+                    {
+                        padConnected = true;
+                        hasBatteryPct = false;
+                        barPct = 0;
+                        isCharging = false;
+                        pctText = "Açık";
+                        detail = "Kablosuz • Bağlı";
+                        return;
+                    }
+                }
+            }
+            catch { }
         }
     }
 
@@ -1110,6 +1938,7 @@ namespace OpenWidget
         private bool lastMouseChargingState = false;
         private bool lastHeadsetChargingState = false;
         private bool lastPadChargingState = false;
+        private bool lastPadHasPctState = false;
         private struct TaskbarDeviceItem { public string Kind; public string Name; public int Pct; public string Detail; public bool IsCharging; }
         private readonly List<TaskbarDeviceItem> latestTaskbarDevices = new List<TaskbarDeviceItem>();
 
@@ -6637,73 +7466,16 @@ namespace OpenWidget
                     }
                 }
 
-                // 3. Wireless Controller (XInput 0..3 + WinMM DirectInput Fallback)
+                // 3. Wireless Controller (DualSense/DS4 HID + BT PnP + XInput/WGI + WinMM Fallback)
                 bool padConnected = false;
+                bool padHasBatteryPct = false;
                 string padDetail = "Bağlı Değil";
                 string padPctText = "Kapalı";
                 int padBarPct = 0;
                 bool padCharging = false;
 
-                try
-                {
-                    for (uint i = 0; i < 4; i++)
-                    {
-                        WirelessBatteryNative.XINPUT_STATE st;
-                        if (WirelessBatteryNative.XInputGetState(i, out st) == 0)
-                        {
-                            padConnected = true;
-                            WirelessBatteryNative.XINPUT_BATTERY_INFORMATION bat;
-                            if (WirelessBatteryNative.XInputGetBatteryInformation(i, 0, out bat) == 0)
-                            {
-                                if (bat.BatteryType == 1)
-                                {
-                                    padBarPct = 100;
-                                    padCharging = true;
-                                    padPctText = "%100";
-                                    padDetail = "Bağlı • Kablolu / Şarjda";
-                                }
-                                else if (bat.BatteryType == 2 || bat.BatteryType == 3)
-                                {
-                                    if (bat.BatteryLevel == 3) { padBarPct = 100; padPctText = "%100"; padDetail = "Kablosuz • Tam Dolu"; }
-                                    else if (bat.BatteryLevel == 2) { padBarPct = 65; padPctText = "%65"; padDetail = "Kablosuz • İyi Seviye"; }
-                                    else if (bat.BatteryLevel == 1) { padBarPct = 30; padPctText = "%30"; padDetail = "Kablosuz • Düşük Pil"; }
-                                    else { padBarPct = 10; padPctText = "%10"; padDetail = "Kablosuz • Çok Düşük!"; }
-                                }
-                                else
-                                {
-                                    padBarPct = 100;
-                                    padPctText = "Açık";
-                                    padDetail = "Bağlı • Aktif";
-                                }
-                            }
-                            break;
-                        }
-                    }
-                }
-                catch { }
-
-                if (!padConnected)
-                {
-                    try
-                    {
-                        int numDevs = Math.Min(16, WirelessBatteryNative.joyGetNumDevs());
-                        for (int i = 0; i < numDevs; i++)
-                        {
-                            WirelessBatteryNative.JOYINFOEX ji = new WirelessBatteryNative.JOYINFOEX();
-                            ji.dwSize = Marshal.SizeOf(typeof(WirelessBatteryNative.JOYINFOEX));
-                            ji.dwFlags = 0xFF;
-                            if (WirelessBatteryNative.joyGetPosEx(i, ref ji) == 0)
-                            {
-                                padConnected = true;
-                                padBarPct = 100;
-                                padPctText = "Açık";
-                                padDetail = "Bağlı • Kablosuz Aktif";
-                                break;
-                            }
-                        }
-                    }
-                    catch { }
-                }
+                WirelessBatteryNative.QueryGamepadBattery(
+                    out padConnected, out padHasBatteryPct, out padBarPct, out padCharging, out padPctText, out padDetail);
 
                 Dispatcher.Invoke(() =>
                 {
@@ -6741,9 +7513,10 @@ namespace OpenWidget
                         }
                     }
 
-                    bool showPad = padConnected && padBarPct > 0;
-                    lastPadPctState = showPad ? padBarPct : -1;
-                    lastPadChargingState = padCharging;
+                    bool showPad = padConnected && (!padHasBatteryPct || padBarPct > 0);
+                    lastPadPctState = (showPad && padHasBatteryPct) ? padBarPct : -1;
+                    lastPadHasPctState = showPad && padHasBatteryPct;
+                    lastPadChargingState = showPad && padCharging;
                     if (rowController != null)
                     {
                         Visibility targetPadVis = showPad ? Visibility.Visible : Visibility.Collapsed;
@@ -6752,8 +7525,16 @@ namespace OpenWidget
                         {
                             txtControllerDetail.Text = padDetail;
                             txtControllerPct.Text = padPctText;
-                            barControllerFill.Width = Math.Max(3, (42.0 * padBarPct) / 100.0);
-                            CheckAndNotifyLowBattery("gamepad:controller", "Kablosuz Kumanda", padBarPct, padCharging);
+                            Border padTrack = barControllerFill != null ? (barControllerFill.Parent as Border) : null;
+                            if (padTrack != null) padTrack.Visibility = padHasBatteryPct ? Visibility.Visible : Visibility.Collapsed;
+                            rowController.ToolTip = padHasBatteryPct
+                                ? null
+                                : "2.4GHz USB alıcı Windows'a pil yüzdesi iletmiyor.\nGerçek pil yüzdesini görmek için kumandayı Bluetooth ile bağlayabilirsiniz.";
+                            if (padHasBatteryPct)
+                            {
+                                barControllerFill.Width = Math.Max(3, (42.0 * padBarPct) / 100.0);
+                                CheckAndNotifyLowBattery("gamepad:controller", "Kablosuz Kumanda", padBarPct, padCharging);
+                            }
                         }
                     }
 
@@ -6761,8 +7542,8 @@ namespace OpenWidget
 
                     bool anyDeviceVisible = showMouse || showHeadset || showPad;
                     anyWirelessDeviceActive = anyDeviceVisible;
-                    Visibility targetSecVis = (showSecWireless && anyDeviceVisible) ? Visibility.Visible : Visibility.Collapsed;
-                    if (secContainerWireless != null && secContainerWireless.Visibility != targetSecVis)
+                    Visibility targetVis = (showSecWireless && anyDeviceVisible) ? Visibility.Visible : Visibility.Collapsed;
+                    if (secContainerWireless != null && secContainerWireless.Visibility != targetVis)
                     {
                         ApplyLayoutAndVisibility();
                         visChanged = true;
@@ -6778,7 +7559,7 @@ namespace OpenWidget
                         latestTaskbarDevices.Add(new TaskbarDeviceItem { Kind = "Headset", Name = "HyperX Cloud III Wireless", Pct = headsetBarPct, Detail = headsetDetail, IsCharging = headsetCharging });
                     if (showMouse)
                         latestTaskbarDevices.Add(new TaskbarDeviceItem { Kind = "Mouse", Name = "Scyrox V8", Pct = mouseBarPct, Detail = mouseDetail, IsCharging = mouseCharging });
-                    if (showPad)
+                    if (showPad && padHasBatteryPct && padBarPct > 0)
                         latestTaskbarDevices.Add(new TaskbarDeviceItem { Kind = "Gamepad", Name = "Kablosuz Kumanda", Pct = padBarPct, Detail = padDetail, IsCharging = padCharging });
                     RefreshTaskbarDevicesOverlayUi();
                 });
